@@ -84,11 +84,66 @@ isolation and the storage/broker bindings are swappable (supports the SPI stretc
 
 **Annotation**
 ```java
-@Idempotent(key = "#request.requestId", ttl = "24h")
+@Idempotent(key = "#headers['Idempotency-Key']", ttl = "24h")
 ```
 - `key` — SpEL expression resolved against method args.
 - `ttl` — how long a dedupe entry is honored (duration string).
 - Optional: `hashBody` (default true), `include` for extra hash inputs.
+
+**Key resolution — client-supplied header keys (chosen default)**
+- The idempotency key is supplied by the **client** as an `Idempotency-Key` HTTP
+  header (Stripe-style), not derived from the payload. Rationale: the client owns
+  what "the same request" means and can retry a dropped request with the same key;
+  the server does not have to guess a natural unique field.
+- The SpEL expression reads the header off a method argument, e.g. a `Map<String,String>
+  headers` param (`#headers['Idempotency-Key']`) or a typed request wrapper. For
+  non-HTTP callers (Kafka consumers, internal service calls) the same expression form
+  reads the equivalent field (`#event.eventId`) — the mechanism is unchanged, only the
+  source differs.
+- The resolver exposes each method parameter as a SpEL variable (`#paramName`),
+  evaluates the expression, and stringifies the result to form the dedupe-table PK.
+- **Transport-agnostic**: works on HTTP controllers, `@KafkaListener` consumers, and
+  plain `@Service` methods, since interception is at the Spring-AOP method level.
+  Caveat to document: self-invocation (`this.method()`) bypasses the proxy and the
+  interceptor.
+
+**Missing / unresolvable key — fail closed (chosen policy)**
+- If the SpEL expression evaluates to null/blank (client omitted the header), the
+  request is **rejected** — `400 Bad Request` with a clear "Idempotency-Key required"
+  message — rather than silently falling back to no-dedupe. Fintech-safe default.
+
+**Supported message / invocation types**
+Interception is at the Spring-AOP method level, so the "message" is whatever the
+annotated method receives. Three shapes are supported:
+
+1. **HTTP requests (primary)** — key from the client header; the response is cached and
+   replayed on retry so a dropped-then-retried `POST` never double-executes.
+   ```java
+   @PostMapping("/payments")
+   @Idempotent(key = "#headers['Idempotency-Key']", ttl = "24h")
+   public PaymentIntent create(@RequestHeader Map<String,String> headers,
+                               @RequestBody PaymentRequest req) { ... }
+   ```
+2. **Message-broker consumers** — the consumed event is the message; key from the event
+   id. Return type is typically `void`, so there is **no response to cache** — the
+   guarantee is simply that the side-effect runs once. This is the consumer-side dedupe
+   the (at-least-once) outbox half of the library relies on.
+   ```java
+   @KafkaListener(topics = "orders")
+   @Idempotent(key = "#event.eventId")
+   public void handle(OrderEvent event) { ... }
+   ```
+3. **Internal service-to-service calls** — any Spring-managed `@Service` method invoked
+   through the proxy (e.g. from a scheduled job or another bean). Same mechanism.
+
+Constraint (document in README): proxy-based AOP means a `this.method()`
+self-invocation inside the same bean bypasses the interceptor.
+
+**Key vs. request hash — two different questions.** The key answers *"is this the same
+logical request?"* (client-supplied, the dedupe-table PK). The request hash answers
+*"...and did they actually send the same thing?"* (canonicalized body → SHA-256). Same
+key + same hash → replay the cached response (or no-op for `void`). Same key + different
+hash → `409 Conflict` (client bug / replay-protection).
 
 **AOP interceptor flow**
 1. Resolve the idempotency key from the SpEL expression.
@@ -254,6 +309,8 @@ These get first-class treatment in the README:
 ---
 
 ## 10. Open Questions
+- ~~Key source — client-supplied header vs. payload-derived?~~ **Decided: client-supplied
+  `Idempotency-Key` header (fail closed if missing).** See §4.1.
 - Response serialization format for the cache — JSON vs. Java serialization vs. bytes
   pass-through? (Leaning JSON for portability; revisit for non-HTTP returns.)
 - Topic naming/resolution strategy — convention (`<aggregateType>.events`) vs. explicit
