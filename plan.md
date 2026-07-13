@@ -53,28 +53,39 @@ dependency, sets a handful of properties, and gets both.
 - **Micrometer** for metrics
 - **Testcontainers** (Postgres + Kafka) + JUnit 5 for tests
 - **GitHub Actions** for CI (build, test, publish coverage)
-- Build: **Maven** (multi-module)
+- Build: **Maven** (single library module + example, under a parent aggregator POM)
 
 ---
 
-## 3. Module Layout (multi-module Maven)
+## 3. Module Layout (single library module + example)
+
+The library is **one module** (the starter). Layering is enforced by package structure,
+not module boundaries. A parent POM aggregates the library and a runnable example.
 
 ```
-reliable-messaging-spring-boot-starter/         (parent POM)
-├── idempotency-outbox-core/                     core domain + SPI, no Spring Boot AutoConfig
-│   ├── idempotency/  (annotation, key resolver, store SPI, hasher)
-│   └── outbox/       (OutboxEvent, OutboxStore SPI, publisher SPI, poller)
-├── idempotency-outbox-postgres/                 Postgres impls of the store SPIs + Flyway
-├── idempotency-outbox-kafka/                    Kafka publisher impl
-├── idempotency-outbox-spring-boot-starter/      auto-config + properties + metrics wiring
+reliable-messaging-spring-boot-starter/              (parent aggregator POM)
+├── idempotency-outbox-spring-boot-starter/          THE library — all code, one module
+│   └── src/main/java/.../idempotencyoutbox/
+│       ├── idempotency/    annotation, aspect, key resolver, hasher, store SPI
+│       │   └── store/jdbc/ JdbcIdempotencyStore
+│       ├── outbox/         OutboxEvent, store SPI, publisher SPI + façade, poller, backoff
+│       │   ├── store/jdbc/         JdbcOutboxStore
+│       │   └── publisher/kafka/    KafkaEventPublisher
+│       ├── web/            ControllerAdvice (409 / 400 mapping)
+│       └── autoconfigure/  auto-config classes + @ConfigurationProperties
+│   └── src/main/resources/db/migration/  Flyway migrations
 ├── examples/
-│   ├── example-idempotent-payments/             @Idempotent payment-intent endpoint
-│   └── example-order-outbox/                     order created → outbox → Kafka → consumer
+│   └── example-order-service/                        e-commerce order flow — exercises BOTH
+│                                                     features: @Idempotent order placement +
+│                                                     outbox → Kafka → idempotent consumer
 └── plan.md / README.md
 ```
 
-Rationale: keep `core` free of Spring Boot autoconfig so the patterns are testable in
-isolation and the storage/broker bindings are swappable (supports the SPI stretch goals).
+Rationale: for an MVP this size a single module is simpler and faster to build; the
+`idempotency` / `outbox` / `autoconfigure` package split keeps concerns separated, and
+the SPI interfaces (`IdempotencyStore`, `OutboxStore`, `EventPublisher`) preserve the
+swappability story. If the SPI stretch goals (Redis store, Debezium bridge) materialize,
+the impl sub-packages extract cleanly into their own modules then — a mechanical move.
 
 ---
 
@@ -276,7 +287,8 @@ These get first-class treatment in the README:
 
 ## 8. Deliverables
 - Published starter artifact (local `install` for MVP; Maven Central/GitHub Packages later).
-- Two example apps runnable via `docker compose up` (Postgres + Kafka) + `mvn spring-boot:run`.
+- One example app (`example-order-service`) exercising both features, runnable via
+  `docker compose up` (Postgres + Kafka) + `mvn spring-boot:run`.
 - README: architecture diagram, delivery-semantics section, decision log (§6),
   benchmark table (throughput, p50/p99 latency, dedupe hit rate).
 
@@ -289,12 +301,12 @@ These get first-class treatment in the README:
 
 **M1 — Idempotency vertical slice**
 - Annotation, SpEL resolver, hasher, Postgres store, AOP aspect, 409 handling.
-- Integration tests + `example-idempotent-payments`.
+- Integration tests + idempotent order-placement endpoint in `example-order-service`.
 
 **M2 — Outbox vertical slice**
 - Outbox table + migration, `OutboxPublisher.record`, poller with backoff + DLQ,
   Kafka publisher, per-aggregate ordering.
-- Integration tests + `example-order-outbox`.
+- Integration tests + the outbox → Kafka → consumer flow in `example-order-service`.
 
 **M3 — Auto-config & polish**
 - Auto-configuration classes, properties, Micrometer metrics, sweeper.
@@ -305,6 +317,9 @@ These get first-class treatment in the README:
 
 **Stretch (as time allows)**
 - LISTEN/NOTIFY tailer, Debezium bridge, Redis/DynamoDB dedupe SPI impl, docs site.
+
+> A detailed, stage-by-stage build plan with concrete steps, per-stage testing, and
+> exit criteria lives in [implementation-plan.md](implementation-plan.md).
 
 ---
 
