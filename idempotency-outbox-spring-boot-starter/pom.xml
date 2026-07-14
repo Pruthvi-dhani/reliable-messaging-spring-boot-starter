@@ -4,18 +4,29 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!-- Standalone module. Uses Spring's parent purely for dependency + plugin version management;
+         this is build-time only and is invisible to consumers of the published artifact. -->
     <parent>
-        <groupId>io.github.pruthvidhani</groupId>
-        <artifactId>reliable-messaging-parent</artifactId>
-        <version>0.1.0-SNAPSHOT</version>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
     </parent>
 
+    <groupId>io.github.pruthvidhani</groupId>
     <artifactId>idempotency-outbox-spring-boot-starter</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
     <name>Idempotency + Outbox Spring Boot Starter</name>
     <description>
         Request idempotency (@Idempotent) and transactional-outbox publishing on Postgres + Kafka,
         packaged as a drop-in Spring Boot starter.
     </description>
+
+    <properties>
+        <java.version>21</java.version>
+        <spotless-maven-plugin.version>2.43.0</spotless-maven-plugin.version>
+        <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
+    </properties>
 
     <dependencies>
         <!-- Core Spring Boot + AOP (for the @Idempotent aspect) -->
@@ -56,11 +67,11 @@
             <artifactId>micrometer-core</artifactId>
         </dependency>
 
-        <!-- web dependency is optional: only needed by consumers using the HTTP 409/400 advice -->
+        <!-- Web is a first-class dependency for now: the initial target is web consumers
+             (the @Idempotent HTTP flow + 409/400 advice). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
-            <optional>true</optional>
         </dependency>
 
         <!-- Generates spring-configuration-metadata.json for @ConfigurationProperties -->
@@ -101,13 +112,63 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-            </plugin>
+            <!-- Integration tests: *IT (Testcontainers), run in the verify phase.
+                 Version is inherited from spring-boot-starter-parent. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Coverage: agent + report. A gate threshold is added once real code lands. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco-maven-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Formatting: whitespace + import order (safe rules, no body reformat). -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+                <version>${spotless-maven-plugin.version}</version>
+                <configuration>
+                    <java>
+                        <importOrder/>
+                        <removeUnusedImports/>
+                        <trimTrailingWhitespace/>
+                        <endWithNewline/>
+                    </java>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

@@ -1,0 +1,16 @@
+# Example app config. Points at the services in the repo-root docker-compose.yml.
+# Run: `docker compose up -d` then `mvn -pl examples/example-order-service spring-boot:run`
+spring:
+  application:
+    name: example-order-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/orders
+    username: orders
+    password: orders
+  flyway:
+    enabled: true
+  kafka:
+    bootstrap-servers: localhost:9092
+
+server:
+  port: 8080

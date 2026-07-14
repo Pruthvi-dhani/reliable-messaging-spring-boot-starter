@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- A standalone consumer app, wired exactly like a real customer's project would be:
+         its own Spring Boot parent, and a plain dependency on the published starter. -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>io.github.pruthvidhani.example</groupId>
+    <artifactId>example-order-service</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>Example: Order Service</name>
+    <description>
+        E-commerce order flow demonstrating both starter features: idempotent order placement and
+        transactional-outbox publishing to Kafka with an idempotent consumer.
+    </description>
+
+    <properties>
+        <java.version>21</java.version>
+    </properties>
+
+    <dependencies>
+        <!-- The starter, consumed like any third-party dependency. Resolved from the local Maven
+             repo (mvn install the starter first) or a registry once it is published. -->
+        <dependency>
+            <groupId>io.github.pruthvidhani</groupId>
+            <artifactId>idempotency-outbox-spring-boot-starter</artifactId>
+            <version>0.1.0-SNAPSHOT</version>
+        </dependency>
+
+        <!-- Postgres driver at runtime (the consuming app provides its own datasource/driver) -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Enables `mvn spring-boot:run` and repackage into a runnable jar.
+                 Version inherited from spring-boot-starter-parent. -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>

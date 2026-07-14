@@ -15,27 +15,33 @@ endpoint Stage 1 introduces, so build Stage 1 first for the shared example.
 
 ## Stage 0 — Scaffolding & CI (milestone M0)
 
-**Goal:** a buildable single-module starter (plus one example) with CI and a reusable
-Testcontainers base, so every later stage lands on green infrastructure.
+**Goal:** two buildable, independent modules (the standalone starter + a standalone
+example consumer) with per-module CI and a reusable Testcontainers base, so every later
+stage lands on green infrastructure.
 
 ### Implementation steps
-1. Create the parent aggregator POM: Java 21, Spring Boot 3.x BOM, dependency management,
-   `<modules>` listing the library module and the example.
-2. Create two module skeletons with their own POMs:
+1. **No aggregator/parent POM.** Each module is standalone and uses
+   `spring-boot-starter-parent` for dependency + plugin version management (build-time
+   only, invisible to consumers of the published starter).
+2. Create two independent module POMs:
    - `idempotency-outbox-spring-boot-starter` — **the whole library in one module**, with
      the package layout from plan.md §3 (`idempotency/`, `outbox/`, `web/`,
      `autoconfigure/`, plus `store/jdbc` and `publisher/kafka` impl sub-packages).
-   - `examples/example-order-service` — single example exercising both features
-     (idempotent order placement + outbox → Kafka → idempotent consumer).
-3. Add shared build plugins: compiler (release 21), Surefire/Failsafe (unit vs. IT
-   split), JaCoCo coverage, Spotless/formatter.
+   - `examples/example-order-service` — independent consumer app that depends on the
+     starter by coordinates (like a real customer); exercises both features (idempotent
+     order placement + outbox → Kafka → idempotent consumer).
+3. Add build plugins in the **library** module: Failsafe (`*IT` in the verify phase;
+   Surefire `*Test` and release 21 come from the Spring parent), JaCoCo coverage,
+   Spotless/formatter. The example keeps a minimal build (spring-boot-maven-plugin).
 4. Add Testcontainers + JUnit 5 to the library module's test scope; write an abstract
    `AbstractPostgresIT` and `AbstractKafkaIT` base class (singleton containers, reused
    across the module's tests).
 5. `docker-compose.yml` at repo root (Postgres + Kafka + Zookeeper/KRaft) for local
    example runs.
-6. GitHub Actions workflow: checkout → set up JDK 21 → `mvn verify` → upload coverage.
-   Cache Maven deps. Run on push + PR.
+6. **Two independent GitHub Actions workflows** (per-module, path-filtered): each does
+   checkout → set up JDK 21 → `mvn verify` → upload coverage; cache Maven deps; run on
+   push + PR. The example's pipeline resolves the starter from the local Maven repo
+   (install the starter first) until it is published to a registry.
 7. Root `README.md` stub + a short README in the example module.
 
 ### Testing plan
@@ -46,7 +52,8 @@ Testcontainers base, so every later stage lands on green infrastructure.
 - CI must pass on a throwaway PR before Stage 0 is considered done.
 
 ### Exit criteria
-- `mvn clean verify` green locally and in GitHub Actions.
+- `mvn clean verify` green for **each** module (starter, then example) locally and in
+  their respective GitHub Actions pipelines.
 - Testcontainers spins up Postgres + Kafka in CI.
 - Coverage report published as a CI artifact.
 

@@ -53,39 +53,52 @@ dependency, sets a handful of properties, and gets both.
 - **Micrometer** for metrics
 - **Testcontainers** (Postgres + Kafka) + JUnit 5 for tests
 - **GitHub Actions** for CI (build, test, publish coverage)
-- Build: **Maven** (single library module + example, under a parent aggregator POM)
+- Build: **Maven** (two independent modules — library + example — no shared parent;
+  each uses `spring-boot-starter-parent` and has its own build/CI)
 
 ---
 
-## 3. Module Layout (single library module + example)
+## 3. Module Layout (two independent modules — no shared parent)
 
-The library is **one module** (the starter). Layering is enforced by package structure,
-not module boundaries. A parent POM aggregates the library and a runnable example.
+The library is **one module** (the starter); the example is a **separate, independent
+project** that depends on the starter by coordinates — exactly how a real customer wires
+it up. There is **no aggregator/parent POM**: each module has its own POM, its own build,
+and its own CI pipeline. Within the library, layering is enforced by package structure.
 
 ```
-reliable-messaging-spring-boot-starter/              (parent aggregator POM)
-├── idempotency-outbox-spring-boot-starter/          THE library — all code, one module
-│   └── src/main/java/.../idempotencyoutbox/
-│       ├── idempotency/    annotation, aspect, key resolver, hasher, store SPI
-│       │   └── store/jdbc/ JdbcIdempotencyStore
-│       ├── outbox/         OutboxEvent, store SPI, publisher SPI + façade, poller, backoff
-│       │   ├── store/jdbc/         JdbcOutboxStore
-│       │   └── publisher/kafka/    KafkaEventPublisher
-│       ├── web/            ControllerAdvice (409 / 400 mapping)
-│       └── autoconfigure/  auto-config classes + @ConfigurationProperties
+reliable-messaging-spring-boot-starter/              (repo root — no POM of its own)
+├── idempotency-outbox-spring-boot-starter/          THE library — standalone module
+│   ├── pom.xml                                       parent = spring-boot-starter-parent
+│   ├── src/main/java/.../idempotencyoutbox/
+│   │   ├── idempotency/    annotation, aspect, key resolver, hasher, store SPI
+│   │   │   └── store/jdbc/ JdbcIdempotencyStore
+│   │   ├── outbox/         OutboxEvent, store SPI, publisher SPI + façade, poller, backoff
+│   │   │   ├── store/jdbc/         JdbcOutboxStore
+│   │   │   └── publisher/kafka/    KafkaEventPublisher
+│   │   ├── web/            ControllerAdvice (409 / 400 mapping)
+│   │   └── autoconfigure/  auto-config classes + @ConfigurationProperties
 │   └── src/main/resources/db/migration/  Flyway migrations
 ├── examples/
-│   └── example-order-service/                        e-commerce order flow — exercises BOTH
-│                                                     features: @Idempotent order placement +
-│                                                     outbox → Kafka → idempotent consumer
+│   └── example-order-service/                        independent consumer app — depends on
+│       ├── pom.xml                                   the starter like any third-party dep;
+│       └── src/...                                   exercises BOTH features (idempotent
+│                                                     order placement + outbox → Kafka →
+│                                                     idempotent consumer)
 └── plan.md / README.md
 ```
 
-Rationale: for an MVP this size a single module is simpler and faster to build; the
-`idempotency` / `outbox` / `autoconfigure` package split keeps concerns separated, and
-the SPI interfaces (`IdempotencyStore`, `OutboxStore`, `EventPublisher`) preserve the
-swappability story. If the SPI stretch goals (Redis store, Debezium bridge) materialize,
-the impl sub-packages extract cleanly into their own modules then — a mechanical move.
+Rationale: two independent builds mirror reality — a customer's app never shares a parent
+POM with the starter, it just declares a dependency on the published artifact. Keeping the
+example standalone makes it double as a realistic consumer reference. Each module uses
+`spring-boot-starter-parent` for dependency/plugin version management (build-time only,
+invisible to consumers). Within the library, the `idempotency` / `outbox` / `autoconfigure`
+package split keeps concerns separated, and the SPI interfaces (`IdempotencyStore`,
+`OutboxStore`, `EventPublisher`) preserve the swappability story; the impl sub-packages
+extract cleanly into their own modules later if the SPI stretch goals materialize.
+
+Local dev / CI note: since there is no aggregator, the example resolves the starter from
+the local Maven repo — `mvn install` the starter first, then build the example (or, once
+published, the example pulls it from a registry and is fully decoupled).
 
 ---
 
