@@ -4,7 +4,7 @@ spring:
   application:
     name: example-order-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/orders
+    url: jdbc:postgresql://localhost:5433/orders
     username: orders
     password: orders
   flyway:
