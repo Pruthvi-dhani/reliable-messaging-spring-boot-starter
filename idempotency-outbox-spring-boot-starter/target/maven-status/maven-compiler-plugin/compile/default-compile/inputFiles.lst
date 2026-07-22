@@ -1,7 +1,0 @@
-/Users/j.pruthvichowdary/Desktop/workflow/reliable-messaging-spring-boot-starter/idempotency-outbox-spring-boot-starter/src/main/java/io/github/pruthvidhani/idempotencyoutbox/autoconfigure/package-info.java
-/Users/j.pruthvichowdary/Desktop/workflow/reliable-messaging-spring-boot-starter/idempotency-outbox-spring-boot-starter/src/main/java/io/github/pruthvidhani/idempotencyoutbox/idempotency/package-info.java
-/Users/j.pruthvichowdary/Desktop/workflow/reliable-messaging-spring-boot-starter/idempotency-outbox-spring-boot-starter/src/main/java/io/github/pruthvidhani/idempotencyoutbox/idempotency/store/jdbc/package-info.java
-/Users/j.pruthvichowdary/Desktop/workflow/reliable-messaging-spring-boot-starter/idempotency-outbox-spring-boot-starter/src/main/java/io/github/pruthvidhani/idempotencyoutbox/outbox/package-info.java
-/Users/j.pruthvichowdary/Desktop/workflow/reliable-messaging-spring-boot-starter/idempotency-outbox-spring-boot-starter/src/main/java/io/github/pruthvidhani/idempotencyoutbox/outbox/publisher/kafka/package-info.java
-/Users/j.pruthvichowdary/Desktop/workflow/reliable-messaging-spring-boot-starter/idempotency-outbox-spring-boot-starter/src/main/java/io/github/pruthvidhani/idempotencyoutbox/outbox/store/jdbc/package-info.java
-/Users/j.pruthvichowdary/Desktop/workflow/reliable-messaging-spring-boot-starter/idempotency-outbox-spring-boot-starter/src/main/java/io/github/pruthvidhani/idempotencyoutbox/web/package-info.java
