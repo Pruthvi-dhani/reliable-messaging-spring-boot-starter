@@ -6,3 +6,5 @@ src/main/java/io/github/pruthvidhani/idempotencyoutbox/outbox/package-info.java 
 src/main/java/io/github/pruthvidhani/idempotencyoutbox/outbox/publisher/kafka/package-info.java 2026-07-13T17:52:56.644123730Z
 src/main/java/io/github/pruthvidhani/idempotencyoutbox/outbox/store/jdbc/package-info.java 2026-07-13T17:52:49.255416838Z
 src/main/java/io/github/pruthvidhani/idempotencyoutbox/web/package-info.java 2026-07-13T17:53:06.043206843Z
+src/test/java/io/github/pruthvidhani/idempotencyoutbox/testsupport/AbstractKafkaIT.java 2026-07-22T07:12:48.412168569Z
+src/test/java/io/github/pruthvidhani/idempotencyoutbox/testsupport/AbstractPostgresIT.java 2026-07-22T07:12:39.270419643Z
