@@ -1,0 +1,40 @@
+name: starter-ci
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "idempotency-outbox-spring-boot-starter/**"
+      - ".github/workflows/starter-ci.yml"
+  pull_request:
+    paths:
+      - "idempotency-outbox-spring-boot-starter/**"
+      - ".github/workflows/starter-ci.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: idempotency-outbox-spring-boot-starter
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # Runs unit tests (Surefire), Testcontainers ITs (Failsafe; Docker is
+      # available on ubuntu-latest), Spotless check, and the JaCoCo report.
+      - name: Build and verify
+        run: ./mvnw -B verify
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: starter-jacoco-report
+          path: idempotency-outbox-spring-boot-starter/target/site/jacoco/
+          if-no-files-found: ignore
