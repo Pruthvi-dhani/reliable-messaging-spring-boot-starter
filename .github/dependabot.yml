@@ -1,0 +1,54 @@
+# Dependabot keeps dependencies patched for known CVEs (SCA) and raises version
+# PRs. It runs on GitHub's infrastructure — no CI minutes until a PR it opens
+# triggers the existing path-filtered workflows.
+#
+# One `maven` entry per pom.xml root (the two independent modules have separate
+# builds), plus one `github-actions` entry that watches the actions pinned in
+# .github/workflows/*.yml.
+version: 2
+
+updates:
+  # --- Library module ------------------------------------------------------
+  - package-ecosystem: maven
+    directory: /idempotency-outbox-spring-boot-starter
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - starter
+    # Collapse the routine minor/patch bumps into one PR to cut review noise;
+    # major bumps still arrive as their own PRs so they get scrutiny.
+    groups:
+      starter-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # --- Example service -----------------------------------------------------
+  - package-ecosystem: maven
+    directory: /examples/example-order-service
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    labels:
+      - dependencies
+      - example
+    groups:
+      example-minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # --- GitHub Actions used by the workflows --------------------------------
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels:
+      - dependencies
+      - ci
+    groups:
+      actions:
+        patterns:
+          - "*"
