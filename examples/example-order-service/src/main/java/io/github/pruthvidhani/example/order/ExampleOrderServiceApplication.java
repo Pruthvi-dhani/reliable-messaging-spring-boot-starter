@@ -1,20 +1,17 @@
 package io.github.pruthvidhani.example.order;
 
-import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyConfiguration;
-import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxConfiguration;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.context.annotation.Import;
 
 /**
  * Example e-commerce order service — exercises both starter features: idempotent {@code POST
  * /orders} and transactional outbox &rarr; Kafka &rarr; idempotent consumer.
  *
- * <p>The {@code @Import}s are interim wiring until the starter ships auto-configuration in Stage 3
- * — after that, the dependency alone suffices.
+ * <p>The starter's beans are wired entirely by auto-configuration: adding the dependency and a
+ * few {@code idempotency.*} / {@code outbox.*} properties is all that is required — no
+ * {@code @Import} or manual bean definitions.
  */
 @SpringBootApplication
-@Import({IdempotencyConfiguration.class, OutboxConfiguration.class})
 public class ExampleOrderServiceApplication {
 
   public static void main(String[] args) {

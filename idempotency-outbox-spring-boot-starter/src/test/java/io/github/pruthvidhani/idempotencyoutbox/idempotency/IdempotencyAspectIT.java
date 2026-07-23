@@ -3,6 +3,7 @@ package io.github.pruthvidhani.idempotencyoutbox.idempotency;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.pruthvidhani.idempotencyoutbox.autoconfigure.IdempotencyAutoConfiguration;
 import io.github.pruthvidhani.idempotencyoutbox.testsupport.AbstractPostgresIT;
 import io.github.pruthvidhani.idempotencyoutbox.testsupport.MutableClock;
 import java.time.Duration;
@@ -72,7 +73,7 @@ class IdempotencyAspectIT extends AbstractPostgresIT {
   }
 
   @Configuration
-  @Import(IdempotencyConfiguration.class)
+  @Import(IdempotencyAutoConfiguration.class)
   static class TestConfig {
 
     @Bean
