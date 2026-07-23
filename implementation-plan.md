@@ -262,52 +262,102 @@ with retry + dead-lettering, and provably no publish on the request path.
 
 ---
 
-## Stage 3 — Auto-configuration, metrics, sweeper, chaos (milestone M3)
+## Stage 3 — Auto-configuration, metrics, sweeper, chaos (milestone M3) — ✅ DONE (as built)
 
 **Goal:** make it a true "drop-in" starter, add observability + expiry reclamation, and
 prove no event loss under failure.
 
-### Implementation steps
-1. **`autoconfigure/` package — auto-configuration**
-   - `IdempotencyAutoConfiguration` and `OutboxAutoConfiguration` classes registered via
-     `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
-   - `@ConditionalOnClass` / `@ConditionalOnProperty` gating; sensible bean defaults with
-     `@ConditionalOnMissingBean` so consumers can override.
-   - `@ConfigurationProperties` binding the full `idempotency.*` / `outbox.*` tree from
-     plan.md §5; generate metadata (`spring-configuration-metadata.json`).
-   - Flyway migrations shipped in the library module's `db/migration` with a documented
-     opt-out for teams managing their own schema.
-2. **metrics (Micrometer)**
-   - Idempotency: hit/miss/conflict counters, dedupe hit-rate gauge.
-   - Outbox: publish latency timer, publish/retry/dead counters, **lag** gauge
-     (pending count and age of oldest pending event, in events and seconds).
-3. **sweeper**
-   - Scheduled `IdempotencySweeper` deleting rows past `expires_at` on
-     `idempotency.sweeper.interval`.
-4. **chaos test harness**
-   - Test control to kill/restart the poller (or pause the Kafka container) mid-batch.
+### What was built
+1. **`autoconfigure/` package — `@ConfigurationProperties`**
+   - `IdempotencyProperties` (`idempotency.*`): `enabled`, `defaultTtl` (24h),
+     `duplicateWait` (5s), `duplicatePollInterval` (100ms), nested `Sweeper{enabled,
+     interval=5m}`.
+   - `OutboxProperties` (`outbox.*`): `enabled`, `pollInterval` (500ms), `batchSize` (100),
+     `maxAttempts` (8), `publishTimeout` (15s), nested `Backoff{base=200ms, cap=30s}`.
+   - `spring-boot-configuration-processor` (optional dep) generates
+     `spring-configuration-metadata.json` for IDE autocomplete.
+2. **`autoconfigure/` package — auto-configuration** (registered via
+   `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`)
+   - `IdempotencyAutoConfiguration` — `@AutoConfiguration(after = DataSourceAutoConfiguration)`,
+     `@ConditionalOnClass({Idempotent, JdbcTemplate})`,
+     `@ConditionalOnProperty(idempotency.enabled, matchIfMissing = true)`,
+     `@EnableAspectJAutoProxy`. Beans (all `@ConditionalOnMissingBean` so a consumer
+     overrides any piece): a shared `Clock`, key resolver, hasher, `JdbcIdempotencyStore`,
+     metrics, the aspect, the sweeper (gated on `idempotency.sweeper.enabled`), and the web
+     exception advice (`@ConditionalOnWebApplication(SERVLET)`).
+   - `OutboxAutoConfiguration` — `@AutoConfiguration(after = {KafkaAutoConfiguration,
+     DataSourceAutoConfiguration})`, same override-friendly shape. Beans: clock, store,
+     `OutboxPublisher`, `TopicResolver`, a dedicated `outboxKafkaTemplate`
+     (`@ConditionalOnMissingBean(name)` so it never collides with an app's own template),
+     `KafkaEventPublisher`, metrics, poller, scheduler.
+   - **Deviation:** the interim `IdempotencyConfiguration` / `OutboxConfiguration`
+     `@Import` classes from Stages 1–2 were **deleted** — the example now boots on
+     `@SpringBootApplication` alone (a true drop-in, no `@Import`).
+3. **metrics (Micrometer, behind interfaces)**
+   - `IdempotencyMetrics` / `OutboxMetrics` are **interfaces** (each with a `NOOP`) so the
+     aspect and poller stay Micrometer-free and — the reason it mattered — stay **mockable
+     on Java 25** (Mockito can mock interfaces there, not concrete classes).
+   - `MicrometerIdempotencyMetrics`: `idempotency.requests{result=hit|miss|conflict}`
+     counters + `idempotency.hit.rate` gauge (hits/(hits+misses)).
+   - `MicrometerOutboxMetrics`: `outbox.publish.latency` timer,
+     `outbox.events{result=published|retried|dead}` counters, and **lag** gauges
+     `outbox.lag.events` (pending count) + `outbox.lag.seconds` (age of oldest pending,
+     driven by a new `OutboxStore.oldestPendingTimestamp()`).
+   - **Wiring detail:** `idempotencyMetrics(ObjectProvider<MeterRegistry>)` falls back to a
+     throwaway `SimpleMeterRegistry` when no registry is present, so metric recording is
+     always safe even without actuator on the classpath.
+4. **sweeper**
+   - `IdempotencySweeper` — `SmartLifecycle` fixed-delay loop deleting rows past
+     `expires_at` on `idempotency.sweeper.interval`, swallowing/logging any throwable.
+     Exposes a `sweep()` method returning the deleted count for deterministic testing.
+     It's purely **storage reclamation** — expired rows already behave as absent (the store
+     filters on `expires_at` and steals expired keys), so the sweeper only frees space.
+5. **chaos test harness** — realized as failure-injecting `EventPublisher` wrappers in the
+   IT (see below) rather than container pause: a `BrokerOutagePublisher` (fails before the
+   send) and a `CrashAfterAckPublisher` (sends for real, then throws — modelling a crash in
+   the ack→commit window).
 
-### Testing plan
-- **Auto-config slice tests** (`ApplicationContextRunner`)
-  - Beans present when properties enabled; **absent** when `enabled=false`.
-  - Consumer-provided `@Bean` overrides the default (`@ConditionalOnMissingBean`).
-  - Property binding: custom `poll-interval`, `batch-size`, `max-attempts`, `default-ttl`
-    land on the right beans.
-- **Metrics tests**: drive hits/misses/failures, assert the expected meters exist with
-  correct values in a `SimpleMeterRegistry`.
-- **Sweeper test** (Postgres): seed expired + live rows, run sweeper, assert only expired
-  rows removed.
-- **Chaos test (the headline test)**: publish a known set of N events; kill the publisher
-  mid-batch and restart (and separately: drop+restore the Kafka container); assert every
-  event eventually lands on Kafka **at-least-once** (no loss) and consumer-side
-  `@Idempotent` collapses any duplicates to exactly-once *effect*.
-- **Starter smoke**: a minimal app depending only on the starter + a datasource boots and
-  both features work with zero manual bean config.
+### Testing done (as built) — library 36 tests, example 7 tests, both green
+- **Property binding (4)**: `Binder` drives the full `idempotency.*` / `outbox.*` tree,
+  defaults and nested `sweeper` / `backoff` land on the right fields.
+- **Auto-config slice tests (7, `ApplicationContextRunner` + H2)**: beans present when
+  enabled; **absent** when `enabled=false`; a consumer `@Bean` overrides the default
+  (`@ConditionalOnMissingBean`); custom properties bind onto the live beans. Needed
+  `DataSource` + `JdbcTemplate` + `DataSourceTransactionManager` + `Kafka`
+  auto-configurations wired into the runner to satisfy the graph.
+- **Metrics tests (9)**: idempotency (4) — outcome counters by tag, hit-rate math,
+  zero-before-traffic, conflicts don't move hit-rate; outbox (5) — latency timer count +
+  total, result counters, lag-events gauge, lag-seconds = age of oldest pending, zero when
+  nothing pending. All against a `SimpleMeterRegistry`.
+- **Sweeper IT (2, real Postgres)**: seed expired + live rows (via a `MutableClock` advanced
+  past TTL), sweep → **only the expired rows removed**, live key survives; no-op when
+  nothing is expired.
+- **Chaos IT (2, the headline — real Postgres + Kafka)**:
+  - *Broker outage before send*: drop the broker on every event's first attempt → drain →
+    Kafka has **exactly N records, no duplicates, no DEAD** (retry-until-success loses and
+    adds nothing).
+  - *Crash after ack*: two events send for real then throw before the DB commit → they're
+    re-polled and **physically re-sent** (Kafka sees them **twice** — genuine
+    at-least-once). Grouping by the stable `outbox-event-id` header collapses back to
+    **exactly the original N ids, zero loss** — the exactly-once *effect* a consumer's
+    `@Idempotent(key = "#eventId")` delivers.
+- **Starter smoke (`StarterSmokeTest`)** + example `SmokeTest`: a minimal app on the starter
+  dependency alone boots both features with **zero manual bean config**.
+- Coverage gate (80% line) met with the established exclusions (`web/`, `*Configuration`,
+  `OutboxPollerScheduler`). Debugging notes: JaCoCo can't instrument v69 (Java 25) ByteBuddy
+  mock classes — the `major version 69` instrumentation lines are noise, not a gate failure;
+  a `Connection is closed` trace on example shutdown is the poller ticking once as the
+  context tears down the datasource (caught + logged).
 
 ### Exit criteria
-- A bare app with just the starter dependency + properties gets both features.
-- Chaos test proves no event loss across publisher/broker failure.
-- Metrics visible for dedupe hit rate and outbox lag/latency.
+- [x] A bare app with just the starter dependency + properties gets both features (no
+      `@Import`; proven by the example booting on `@SpringBootApplication` alone).
+- [x] Chaos IT proves no event loss across broker-outage and crash-after-ack failure, with
+      the event-id header collapsing duplicates to exactly-once effect.
+- [x] Metrics visible for dedupe hit rate and outbox lag (events + seconds) / latency.
+- [x] TTL sweeper reclaims expired dedupe rows on a schedule.
+- [ ] CI workflows have never run on GitHub (nothing pushed yet) — standing open item
+      carried across all stages, to close once the repo is pushed.
 
 ---
 

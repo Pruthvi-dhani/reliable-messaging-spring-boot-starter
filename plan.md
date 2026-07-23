@@ -350,9 +350,9 @@ These get first-class treatment in the README:
 - 31 outbox tests green (15 unit + 13 library IT + 3 example IT); order → outbox → Kafka
   → `@Idempotent` consumer deduping to exactly-once effect in `example-order-service`.
 
-**M3 — Auto-config & polish**
+**M3 — Auto-config & polish** ✅ done
 - Auto-configuration classes, properties, Micrometer metrics, sweeper.
-- Chaos test.
+- Chaos test (no loss on broker outage; exactly-once effect via event-id dedupe).
 
 **M4 — Docs & benchmark**
 - README (diagram, semantics, decision log), benchmark harness + results table.
