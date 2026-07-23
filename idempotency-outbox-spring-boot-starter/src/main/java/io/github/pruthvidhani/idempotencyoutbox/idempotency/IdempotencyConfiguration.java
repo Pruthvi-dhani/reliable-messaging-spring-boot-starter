@@ -1,6 +1,7 @@
 package io.github.pruthvidhani.idempotencyoutbox.idempotency;
 
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.store.jdbc.JdbcIdempotencyStore;
+import io.github.pruthvidhani.idempotencyoutbox.web.IdempotencyExceptionAdvice;
 import java.time.Clock;
 import java.time.Duration;
 import org.springframework.context.annotation.Bean;
@@ -37,6 +38,12 @@ public class IdempotencyConfiguration {
   @Bean
   public IdempotencyStore idempotencyStore(JdbcTemplate jdbcTemplate, Clock clock) {
     return new JdbcIdempotencyStore(jdbcTemplate, clock);
+  }
+
+  /** Maps idempotency failures to 400/409 ProblemDetail responses for web consumers. */
+  @Bean
+  public IdempotencyExceptionAdvice idempotencyExceptionAdvice() {
+    return new IdempotencyExceptionAdvice();
   }
 
   @Bean
