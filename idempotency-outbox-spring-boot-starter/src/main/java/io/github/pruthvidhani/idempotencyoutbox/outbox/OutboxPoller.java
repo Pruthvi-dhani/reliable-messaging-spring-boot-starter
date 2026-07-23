@@ -1,6 +1,7 @@
 package io.github.pruthvidhani.idempotencyoutbox.outbox;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
@@ -39,6 +40,7 @@ public class OutboxPoller {
   private final Backoff backoff;
   private final int batchSize;
   private final int maxAttempts;
+  private final OutboxMetrics metrics;
 
   public OutboxPoller(
       OutboxStore store,
@@ -48,7 +50,8 @@ public class OutboxPoller {
       Clock clock,
       Backoff backoff,
       int batchSize,
-      int maxAttempts) {
+      int maxAttempts,
+      OutboxMetrics metrics) {
     this.store = store;
     this.publisher = publisher;
     this.topicResolver = topicResolver;
@@ -57,6 +60,7 @@ public class OutboxPoller {
     this.backoff = backoff;
     this.batchSize = batchSize;
     this.maxAttempts = maxAttempts;
+    this.metrics = metrics;
   }
 
   /**
@@ -89,15 +93,18 @@ public class OutboxPoller {
 
   /** Publishes one event; on failure applies backoff or dead-letters. Returns success. */
   private boolean publish(OutboxEvent event) {
+    long startNanos = System.nanoTime();
     try {
       publisher.publish(
           topicResolver.topicFor(event), event.aggregateId(), event.payload(), event.headers());
       store.markPublished(event.id(), clock.instant());
+      metrics.recordPublished(Duration.ofNanos(System.nanoTime() - startNanos));
       return true;
     } catch (Exception failure) {
       int attemptsMade = event.attempts() + 1;
       if (attemptsMade >= maxAttempts) {
         store.markDead(event.id());
+        metrics.recordDead();
         log.error(
             "Outbox event {} ({} for aggregate {}) DEAD after {} attempts",
             event.id(),
@@ -108,6 +115,7 @@ public class OutboxPoller {
       } else {
         Instant nextAttemptAt = clock.instant().plus(backoff.delayAfter(event.attempts()));
         store.reschedule(event.id(), attemptsMade, nextAttemptAt);
+        metrics.recordRetried();
         log.warn(
             "Outbox event {} failed attempt {}/{}; next attempt at {}",
             event.id(),

@@ -64,7 +64,8 @@ class OutboxPollerIT extends AbstractPostgresKafkaIT {
         clock,
         new Backoff(Duration.ofMillis(200), Duration.ofSeconds(30)),
         100,
-        maxAttempts);
+        maxAttempts,
+        OutboxMetrics.NOOP);
   }
 
   @BeforeAll

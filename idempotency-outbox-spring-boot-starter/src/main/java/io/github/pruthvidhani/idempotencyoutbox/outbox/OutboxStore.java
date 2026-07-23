@@ -2,6 +2,7 @@ package io.github.pruthvidhani.idempotencyoutbox.outbox;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -37,6 +38,12 @@ public interface OutboxStore {
   /** Parks the event as DEAD (retries exhausted); terminal. */
   void markDead(UUID id);
 
-  /** Number of PENDING events (outbox lag, for metrics/tests). */
+  /** Number of PENDING events (outbox lag in events, for metrics/tests). */
   int countPending();
+
+  /**
+   * Timestamp of the oldest PENDING event ({@code min(created_at)}), empty if none. The age of
+   * this instant is the outbox lag in seconds.
+   */
+  Optional<Instant> oldestPendingTimestamp();
 }

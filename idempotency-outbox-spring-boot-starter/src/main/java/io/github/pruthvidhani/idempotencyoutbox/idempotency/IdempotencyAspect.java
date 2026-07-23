@@ -41,6 +41,7 @@ public class IdempotencyAspect {
   private final Duration defaultTtl;
   private final Duration duplicateWaitBudget;
   private final Duration duplicatePollInterval;
+  private final IdempotencyMetrics metrics;
   private final ObjectMapper responseMapper;
 
   public IdempotencyAspect(
@@ -50,7 +51,8 @@ public class IdempotencyAspect {
       Clock clock,
       Duration defaultTtl,
       Duration duplicateWaitBudget,
-      Duration duplicatePollInterval) {
+      Duration duplicatePollInterval,
+      IdempotencyMetrics metrics) {
     this.keyResolver = keyResolver;
     this.hasher = hasher;
     this.store = store;
@@ -58,6 +60,7 @@ public class IdempotencyAspect {
     this.defaultTtl = defaultTtl;
     this.duplicateWaitBudget = duplicateWaitBudget;
     this.duplicatePollInterval = duplicatePollInterval;
+    this.metrics = metrics;
     this.responseMapper = JsonMapper.builder().addModule(new JavaTimeModule()).build();
   }
 
@@ -79,6 +82,7 @@ public class IdempotencyAspect {
     while (true) {
       Instant now = clock.instant();
       if (store.putInProgress(key, requestHash, now, now.plus(ttl))) {
+        metrics.recordMiss();
         return executeAndCache(joinPoint, method, key);
       }
 
@@ -86,9 +90,11 @@ public class IdempotencyAspect {
       if (existing.isPresent()) {
         IdempotencyRecord record = existing.get();
         if (idempotent.hashBody() && !record.requestHash().equals(requestHash)) {
+          metrics.recordConflict();
           throw new IdempotencyConflictException(key);
         }
         if (record.status() == IdempotencyRecord.Status.COMPLETED) {
+          metrics.recordHit();
           return replay(method, record);
         }
       }

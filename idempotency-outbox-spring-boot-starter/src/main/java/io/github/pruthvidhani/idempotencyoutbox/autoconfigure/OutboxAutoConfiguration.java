@@ -2,6 +2,8 @@ package io.github.pruthvidhani.idempotencyoutbox.autoconfigure;
 
 import io.github.pruthvidhani.idempotencyoutbox.outbox.Backoff;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.EventPublisher;
+import io.github.pruthvidhani.idempotencyoutbox.outbox.MicrometerOutboxMetrics;
+import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxMetrics;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxPoller;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxPollerScheduler;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxPublisher;
@@ -9,9 +11,12 @@ import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxStore;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.TopicResolver;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.publisher.kafka.KafkaEventPublisher;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.store.jdbc.JdbcOutboxStore;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
 import java.util.Map;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -83,6 +88,15 @@ public class OutboxAutoConfiguration {
     return new KafkaEventPublisher(outboxKafkaTemplate, properties.getPublishTimeout());
   }
 
+  /** App {@link MeterRegistry} if present, else a throwaway one (recording is always safe). */
+  @Bean
+  @ConditionalOnMissingBean
+  public OutboxMetrics outboxMetrics(
+      ObjectProvider<MeterRegistry> meterRegistry, OutboxStore outboxStore, Clock clock) {
+    return new MicrometerOutboxMetrics(
+        meterRegistry.getIfAvailable(SimpleMeterRegistry::new), outboxStore, clock);
+  }
+
   @Bean
   @ConditionalOnMissingBean
   public OutboxPoller outboxPoller(
@@ -91,7 +105,8 @@ public class OutboxAutoConfiguration {
       TopicResolver topicResolver,
       PlatformTransactionManager transactionManager,
       Clock clock,
-      OutboxProperties properties) {
+      OutboxProperties properties,
+      OutboxMetrics outboxMetrics) {
     return new OutboxPoller(
         outboxStore,
         outboxEventPublisher,
@@ -100,7 +115,8 @@ public class OutboxAutoConfiguration {
         clock,
         new Backoff(properties.getBackoff().getBase(), properties.getBackoff().getCap()),
         properties.getBatchSize(),
-        properties.getMaxAttempts());
+        properties.getMaxAttempts(),
+        outboxMetrics);
   }
 
   @Bean

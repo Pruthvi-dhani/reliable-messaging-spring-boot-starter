@@ -2,12 +2,17 @@ package io.github.pruthvidhani.idempotencyoutbox.autoconfigure;
 
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyAspect;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyKeyResolver;
+import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyMetrics;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyStore;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.Idempotent;
+import io.github.pruthvidhani.idempotencyoutbox.idempotency.MicrometerIdempotencyMetrics;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.RequestHasher;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.store.jdbc.JdbcIdempotencyStore;
 import io.github.pruthvidhani.idempotencyoutbox.web.IdempotencyExceptionAdvice;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.time.Clock;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -57,6 +62,17 @@ public class IdempotencyAutoConfiguration {
     return new JdbcIdempotencyStore(jdbcTemplate, clock);
   }
 
+  /**
+   * Uses the app's {@link MeterRegistry} if one is configured, otherwise a throwaway registry so
+   * metric recording is always safe (just not exported).
+   */
+  @Bean
+  @ConditionalOnMissingBean
+  public IdempotencyMetrics idempotencyMetrics(ObjectProvider<MeterRegistry> meterRegistry) {
+    return new MicrometerIdempotencyMetrics(
+        meterRegistry.getIfAvailable(SimpleMeterRegistry::new));
+  }
+
   @Bean
   @ConditionalOnMissingBean
   public IdempotencyAspect idempotencyAspect(
@@ -64,7 +80,8 @@ public class IdempotencyAutoConfiguration {
       RequestHasher hasher,
       IdempotencyStore store,
       Clock clock,
-      IdempotencyProperties properties) {
+      IdempotencyProperties properties,
+      IdempotencyMetrics metrics) {
     return new IdempotencyAspect(
         keyResolver,
         hasher,
@@ -72,7 +89,8 @@ public class IdempotencyAutoConfiguration {
         clock,
         properties.getDefaultTtl(),
         properties.getDuplicateWait(),
-        properties.getDuplicatePollInterval());
+        properties.getDuplicatePollInterval(),
+        metrics);
   }
 
   @Bean

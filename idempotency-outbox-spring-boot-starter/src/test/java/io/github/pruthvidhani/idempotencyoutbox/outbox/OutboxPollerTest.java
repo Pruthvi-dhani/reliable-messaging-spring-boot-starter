@@ -29,6 +29,7 @@ class OutboxPollerTest {
 
   private final OutboxStore store = mock(OutboxStore.class);
   private final EventPublisher publisher = mock(EventPublisher.class);
+  private final OutboxMetrics metrics = mock(OutboxMetrics.class);
   private final MutableClock clock = new MutableClock(START);
   private final OutboxPoller poller =
       new OutboxPoller(
@@ -39,7 +40,8 @@ class OutboxPollerTest {
           clock,
           new Backoff(BASE, Duration.ofSeconds(30)),
           100,
-          3); // maxAttempts
+          3, // maxAttempts
+          metrics);
 
   private OutboxEvent event(String aggregateId, int attempts) {
     return new OutboxEvent(
@@ -71,6 +73,7 @@ class OutboxPollerTest {
     assertThat(published).isEqualTo(1);
     verify(publisher).publish("order.events", "order-1", "{}", event.headers());
     verify(store).markPublished(event.id(), clock.instant());
+    verify(metrics).recordPublished(any());
   }
 
   @Test
@@ -87,6 +90,8 @@ class OutboxPollerTest {
     verify(store).reschedule(firstFailure.id(), 1, START.plus(BASE));
     verify(store, never()).markDead(any());
     verify(store, never()).markPublished(any(), any());
+    verify(metrics).recordRetried();
+    verify(metrics, never()).recordPublished(any());
   }
 
   @Test
@@ -114,6 +119,7 @@ class OutboxPollerTest {
 
     verify(store).markDead(lastChance.id());
     verify(store, never()).reschedule(any(), anyInt(), any());
+    verify(metrics).recordDead();
   }
 
   @Test

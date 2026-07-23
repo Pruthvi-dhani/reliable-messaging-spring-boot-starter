@@ -41,6 +41,11 @@ class OutboxPublisherTest {
     public int countPending() {
       return recorded.size();
     }
+
+    @Override
+    public java.util.Optional<java.time.Instant> oldestPendingTimestamp() {
+      return recorded.stream().map(OutboxEvent::createdAt).min(java.time.Instant::compareTo);
+    }
   }
 
   private final CapturingStore store = new CapturingStore();

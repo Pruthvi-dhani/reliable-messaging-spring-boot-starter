@@ -60,6 +60,9 @@ public class JdbcOutboxStore implements OutboxStore {
   private static final String COUNT_PENDING_SQL =
       "select count(*) from outbox_events where status = 'PENDING'";
 
+  private static final String OLDEST_PENDING_SQL =
+      "select min(created_at) from outbox_events where status = 'PENDING'";
+
   private static final TypeReference<Map<String, String>> HEADERS_TYPE = new TypeReference<>() {};
 
   private final JdbcTemplate jdbc;
@@ -110,6 +113,12 @@ public class JdbcOutboxStore implements OutboxStore {
   public int countPending() {
     Integer count = jdbc.queryForObject(COUNT_PENDING_SQL, Integer.class);
     return count == null ? 0 : count;
+  }
+
+  @Override
+  public java.util.Optional<Instant> oldestPendingTimestamp() {
+    Timestamp oldest = jdbc.queryForObject(OLDEST_PENDING_SQL, Timestamp.class);
+    return java.util.Optional.ofNullable(oldest).map(Timestamp::toInstant);
   }
 
   private OutboxEvent mapRow(ResultSet rs, int rowNum) throws SQLException {
