@@ -1,4 +1,4 @@
-name: example-ci
+name: example-order-service-ci
 
 on:
   push:
@@ -8,12 +8,12 @@ on:
       # The example consumes the starter's SNAPSHOT from the local Maven repo,
       # so starter changes can break it — rebuild the example on those too.
       - "idempotency-outbox-spring-boot-starter/**"
-      - ".github/workflows/example-ci.yml"
+      - ".github/workflows/example-order-service-ci.yml"
   pull_request:
     paths:
       - "examples/example-order-service/**"
       - "idempotency-outbox-spring-boot-starter/**"
-      - ".github/workflows/example-ci.yml"
+      - ".github/workflows/example-order-service-ci.yml"
 
 jobs:
   build:
@@ -29,7 +29,7 @@ jobs:
 
       # Until the starter is published to a registry, the example resolves it
       # from the local Maven repo — install it first (its own tests run in
-      # starter-ci, so they are skipped here).
+      # idempotent-library-ci, so they are skipped here).
       - name: Install starter into local repo
         working-directory: idempotency-outbox-spring-boot-starter
         run: ./mvnw -B install -DskipTests

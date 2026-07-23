@@ -1,15 +1,15 @@
-name: starter-ci
+name: idempotent-library-ci
 
 on:
   push:
     branches: [main]
     paths:
       - "idempotency-outbox-spring-boot-starter/**"
-      - ".github/workflows/starter-ci.yml"
+      - ".github/workflows/idempotent-library-ci.yml"
   pull_request:
     paths:
       - "idempotency-outbox-spring-boot-starter/**"
-      - ".github/workflows/starter-ci.yml"
+      - ".github/workflows/idempotent-library-ci.yml"
 
 jobs:
   build:

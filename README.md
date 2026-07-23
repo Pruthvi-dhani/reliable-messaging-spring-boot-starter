@@ -59,10 +59,10 @@ cd examples/example-order-service
 
 Two independent GitHub Actions pipelines:
 
-- [`starter-ci`](.github/workflows/starter-ci.yml) — builds and verifies the library
-  (including Testcontainers integration tests) on starter changes.
-- [`example-ci`](.github/workflows/example-ci.yml) — installs the starter, then builds
-  the example on example or starter changes.
+- [`idempotent-library-ci`](.github/workflows/idempotent-library-ci.yml) — builds and
+  verifies the library (including Testcontainers integration tests) on starter changes.
+- [`example-order-service-ci`](.github/workflows/example-order-service-ci.yml) —
+  installs the starter, then builds the example on example or starter changes.
 
 ## Tech
 
