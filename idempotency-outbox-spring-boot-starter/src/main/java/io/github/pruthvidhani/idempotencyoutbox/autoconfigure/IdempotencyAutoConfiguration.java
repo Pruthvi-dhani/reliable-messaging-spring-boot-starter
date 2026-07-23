@@ -4,6 +4,7 @@ import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyAspect;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyKeyResolver;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyMetrics;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencyStore;
+import io.github.pruthvidhani.idempotencyoutbox.idempotency.IdempotencySweeper;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.Idempotent;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.MicrometerIdempotencyMetrics;
 import io.github.pruthvidhani.idempotencyoutbox.idempotency.RequestHasher;
@@ -91,6 +92,15 @@ public class IdempotencyAutoConfiguration {
         properties.getDuplicateWait(),
         properties.getDuplicatePollInterval(),
         metrics);
+  }
+
+  @Bean
+  @ConditionalOnMissingBean
+  @ConditionalOnProperty(prefix = "idempotency.sweeper", name = "enabled", havingValue = "true",
+      matchIfMissing = true)
+  public IdempotencySweeper idempotencySweeper(
+      IdempotencyStore store, Clock clock, IdempotencyProperties properties) {
+    return new IdempotencySweeper(store, clock, properties.getSweeper().getInterval());
   }
 
   @Bean
