@@ -112,7 +112,9 @@ published, the example pulls it from a registry and is fully decoupled).
 ```
 - `key` — SpEL expression resolved against method args.
 - `ttl` — how long a dedupe entry is honored (duration string).
-- Optional: `hashBody` (default true), `include` for extra hash inputs.
+- Optional: `hashBody` (default true) toggles request-hash verification; `hashOf` (SpEL)
+  selects what to hash — default is the `@RequestBody` parameter (canonical JSON), see
+  §6 decision 2.
 
 **Key resolution — client-supplied header keys (chosen default)**
 - The idempotency key is supplied by the **client** as an `Idempotency-Key` HTTP
@@ -268,9 +270,30 @@ These get first-class treatment in the README:
 
 1. **Store the response payload, not just the key.** So a client retrying after a
    network drop gets the *same* response, not just a "duplicate" acknowledgement.
-2. **Request hash computation.** Canonicalized body only by default (stable JSON
-   serialization); headers excluded unless opted in. Document what invalidates
-   idempotency and why "same key, different body" is a client bug worth surfacing (409).
+2. **Request hash computation — canonical JSON of the bound body, not the raw wire
+   string.** *(Decided during Stage 1.)* The `@RequestBody`-bound object is re-serialized
+   canonically (POJO properties alphabetized, map entries sorted by key, ISO dates) and
+   SHA-256'd. Why not hash the raw request bytes:
+   - Raw bytes make the hash depend on byte-level accidents that don't change meaning —
+     serializer field ordering (e.g. Go maps randomize per run), whitespace/formatting,
+     unicode escaping — so a legitimate application-level retry that *re-serializes* the
+     same logical request can produce different bytes → **false 409**.
+   - Raw-byte hashing is only safe when retries are byte-identical (SDK-level retry loops
+     that resend the same buffered body). A drop-in starter serves arbitrary clients with
+     app-level retry loops, so it cannot assume that.
+   - Practically, by the time the AOP aspect runs, Spring has consumed the body into the
+     POJO; capturing raw bytes would force request-wrapping plumbing on every consumer.
+   Trade-off accepted: two raw bodies differing only in fields the DTO doesn't bind hash
+   the same — semantically fine, since the server's behavior is identical for both. The
+   hash covers *what the server consumes*, not every byte the client sent.
+   **What gets hashed** is developer-controlled via `hashOf` (SpEL): explicit selection
+   wins; default is the `@RequestBody` parameter; fallback (non-web methods) is all
+   arguments. Headers are never hashed by default (volatile headers like trace IDs would
+   cause false conflicts). `hashBody = false` disables verification entirely for cases
+   where the key alone is authoritative (e.g. consuming outbox events by event id).
+   Document why "same key, different body" is a client bug worth surfacing loudly (409):
+   without the hash, a reused key silently replays the *wrong* cached response — silent
+   data loss; with it, the bug surfaces at the client's first test.
 3. **TTL policy.** Entries expire after `ttl`; a retry after expiry is treated as a new
    request. Trade-off: storage growth vs. replay window. Sweeper reclaims space.
 4. **Outbox polling as default, CDC as stretch.** Polling = operational simplicity, no

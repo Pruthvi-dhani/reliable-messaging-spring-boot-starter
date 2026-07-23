@@ -53,9 +53,17 @@ public @interface Idempotent {
   String ttl() default "";
 
   /**
-   * Whether to hash the method arguments and reject a duplicate key whose request differs (409).
-   * Disable only when the key alone is authoritative (e.g. consuming broker events whose id fully
+   * Whether to hash the request and reject a duplicate key whose request differs (409). Disable
+   * only when the key alone is authoritative (e.g. consuming broker events whose id fully
    * identifies the payload).
    */
   boolean hashBody() default true;
+
+  /**
+   * SpEL expression selecting <i>what</i> to hash (e.g. {@code "#request"} or
+   * {@code "#request.items"}). When empty (the default), the {@code @RequestBody}-annotated
+   * parameter is hashed — canonical JSON of the request body; if no parameter carries
+   * {@code @RequestBody}, all method arguments are hashed.
+   */
+  String hashOf() default "";
 }
