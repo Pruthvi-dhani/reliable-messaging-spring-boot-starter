@@ -309,8 +309,9 @@ These get first-class treatment in the README:
 
 ## 9. Milestones (target: ~2 weekends for MVP)
 
-**M0 — Scaffolding**
-- Parent POM, module skeletons, CI pipeline, Testcontainers base test.
+**M0 — Scaffolding** ✅ done
+- Two independent module POMs (no shared parent), package skeletons, per-module CI
+  pipelines + Maven wrappers, Testcontainers bases + connectivity ITs, compose stack.
 
 **M1 — Idempotency vertical slice**
 - Annotation, SpEL resolver, hasher, Postgres store, AOP aspect, 409 handling.

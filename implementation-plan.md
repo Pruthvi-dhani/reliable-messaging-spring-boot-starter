@@ -13,49 +13,76 @@ endpoint Stage 1 introduces, so build Stage 1 first for the shared example.
 
 ---
 
-## Stage 0 — Scaffolding & CI (milestone M0)
+## Stage 0 — Scaffolding & CI (milestone M0) — ✅ DONE (as built)
 
 **Goal:** two buildable, independent modules (the standalone starter + a standalone
 example consumer) with per-module CI and a reusable Testcontainers base, so every later
 stage lands on green infrastructure.
 
-### Implementation steps
-1. **No aggregator/parent POM.** Each module is standalone and uses
-   `spring-boot-starter-parent` for dependency + plugin version management (build-time
-   only, invisible to consumers of the published starter).
-2. Create two independent module POMs:
-   - `idempotency-outbox-spring-boot-starter` — **the whole library in one module**, with
-     the package layout from plan.md §3 (`idempotency/`, `outbox/`, `web/`,
-     `autoconfigure/`, plus `store/jdbc` and `publisher/kafka` impl sub-packages).
-   - `examples/example-order-service` — independent consumer app that depends on the
-     starter by coordinates (like a real customer); exercises both features (idempotent
-     order placement + outbox → Kafka → idempotent consumer).
-3. Add build plugins in the **library** module: Failsafe (`*IT` in the verify phase;
-   Surefire `*Test` and release 21 come from the Spring parent), JaCoCo coverage,
-   Spotless/formatter. The example keeps a minimal build (spring-boot-maven-plugin).
-4. Add Testcontainers + JUnit 5 to the library module's test scope; write an abstract
-   `AbstractPostgresIT` and `AbstractKafkaIT` base class (singleton containers, reused
-   across the module's tests).
-5. `docker-compose.yml` at repo root (Postgres + Kafka + Zookeeper/KRaft) for local
-   example runs.
-6. **Two independent GitHub Actions workflows** (per-module, path-filtered): each does
-   checkout → set up JDK 21 → `mvn verify` → upload coverage; cache Maven deps; run on
-   push + PR. The example's pipeline resolves the starter from the local Maven repo
-   (install the starter first) until it is published to a registry.
-7. Root `README.md` stub + a short README in the example module.
+### What was built
+1. **No aggregator/parent POM.** Each module is standalone with
+   `spring-boot-starter-parent` **3.3.5** as its parent (build-time only, invisible to
+   consumers). Java 21 via `java.version`; builds run on a newer local JDK targeting 21.
+2. **Two independent module POMs:**
+   - `idempotency-outbox-spring-boot-starter` — the whole library in one module;
+     coordinates `io.github.pruthvidhani:idempotency-outbox-spring-boot-starter:0.1.0-SNAPSHOT`.
+     Package skeleton created as `package-info.java` files per plan.md §3
+     (`idempotency/`, `idempotency/store/jdbc/`, `outbox/`, `outbox/store/jdbc/`,
+     `outbox/publisher/kafka/`, `web/`, `autoconfigure/`), plus an empty
+     `src/main/resources/db/migration/` for Flyway.
+     Decision: **`spring-boot-starter-web` is a first-class (non-optional) dependency**
+     — initial target is web consumers only.
+   - `examples/example-order-service` — independent consumer app
+     (`io.github.pruthvidhani.example:example-order-service`), depends on the starter by
+     coordinates; bootable `@SpringBootApplication` skeleton + `application.yml` pointing
+     at the compose stack. Endpoint/consumer arrive in Stages 1–2.
+3. **Build plugins (library):** Failsafe (`*IT` → verify phase), JaCoCo
+   (**report-only for now** — the coverage gate threshold is deliberately deferred to
+   Stage 1 when real code exists), Spotless with safe rules only (import order, unused
+   imports, trailing whitespace, newline at EOF). Example keeps a minimal build
+   (spring-boot-maven-plugin only).
+4. **Testcontainers base classes** in the library's `testsupport` package:
+   `AbstractPostgresIT` (`postgres:16-alpine`) and `AbstractKafkaIT`
+   (`ConfluentKafkaContainer`, `confluentinc/cp-kafka:7.7.1`) — singleton-container
+   pattern (static init, shared per JVM, reaped by Ryuk; no explicit stop).
+   Note: required overriding the parent-managed `testcontainers.version` to **1.20.4**
+   (Spring Boot 3.3.5 manages 1.19.8, which predates `ConfluentKafkaContainer`).
+5. **`docker-compose.yml`** at repo root: Postgres 16 (host port **5433** — 5432 was
+   occupied by an unidentified local service; example config updated to match) and
+   single-node **KRaft** Kafka (no Zookeeper) on 9092 with dual listeners
+   (host + in-network), healthchecks on both. Same images as the ITs. Validated up →
+   healthy → query → down.
+6. **Two GitHub Actions workflows** (path-filtered, JDK 21 temurin, Maven cache):
+   - `idempotent-library-ci` — `./mvnw -B verify` on the library; uploads the JaCoCo
+     report as an artifact.
+   - `example-order-service-ci` — installs the starter (`-DskipTests`) then verifies the
+     example. Triggers on **example and starter paths** (the example consumes the
+     starter's SNAPSHOT, so starter changes can break it); drop the extra trigger once
+     the starter is published to a registry.
+   **Maven Wrapper** (3.9.9) committed in each module (`mvnw` +
+   `maven-wrapper.properties`; the jar is gitignored — the script bootstraps it).
+7. **READMEs:** root stub (project pitch, status banner, layout, build/run/CI
+   instructions) + example README. **`.gitignore`** added (`target/`, IDE, OS files) and
+   15 previously tracked `target/` files untracked via `git rm --cached`.
 
-### Testing plan
-- A trivial `SmokeTest` in each module (asserts context/utility loads) so Surefire has
-  something to run and CI proves the wiring.
-- One integration test that **starts the Postgres container and the Kafka container**
-  and asserts connectivity — proves the Testcontainers base classes work in CI.
-- CI must pass on a throwaway PR before Stage 0 is considered done.
+### Testing done (as built)
+- `StarterSmokeTest` (library) and `ExampleOrderServiceSmokeTest` (example) — trivial
+  unit tests so Surefire always has work; the example deliberately avoids a
+  `@SpringBootTest` context-load until Stage 1 (would need live infra).
+- **Two connectivity ITs instead of the planned single combined one** (Java single
+  inheritance; also exercises each base class the way real ITs will):
+  `PostgresConnectivityIT` (JDBC connect + `select version()`) and `KafkaConnectivityIT`
+  (full produce → consume roundtrip).
+- Verified locally end-to-end: starter `./mvnw clean install` → BUILD SUCCESS (3 tests);
+  example `./mvnw clean verify` resolving the installed SNAPSHOT → BUILD SUCCESS.
 
 ### Exit criteria
-- `mvn clean verify` green for **each** module (starter, then example) locally and in
-  their respective GitHub Actions pipelines.
-- Testcontainers spins up Postgres + Kafka in CI.
-- Coverage report published as a CI artifact.
+- [x] `mvn clean verify` green for each module locally (starter, then example).
+- [x] Testcontainers spins up Postgres + Kafka (locally; CI expected to match on
+      `ubuntu-latest`, which ships Docker).
+- [x] Coverage report generated and wired for upload as a CI artifact.
+- [ ] **Open:** both pipelines green on GitHub — requires the Stage 0 commit to be
+      pushed (workflows have never run yet).
 
 ---
 
@@ -284,4 +311,5 @@ Each stretch item is independently shippable and follows the same "code + tests"
   (pays off directly for the Stage 5 alternative implementations).
 - **Deterministic time** — inject `java.time.Clock` everywhere TTL/backoff/expiry matter,
   so tests never sleep on wall-clock.
-- Coverage gate enforced in CI from Stage 0 onward.
+- Coverage: JaCoCo report generated from Stage 0; the enforced gate threshold is added
+  in Stage 1 once real code exists (a gate on skeleton code would be meaningless).
