@@ -44,4 +44,16 @@ public class IdempotencyKeyResolver {
     }
     return value.toString();
   }
+
+  /**
+   * Evaluates an arbitrary SpEL expression against the invocation and returns the raw result (used
+   * for {@link Idempotent#hashOf()}). Unlike {@link #resolve}, an evaluation failure here is a
+   * developer bug in the annotation, not a client error — the {@code EvaluationException}
+   * propagates instead of being converted to a 400.
+   */
+  public Object evaluate(String expression, Method method, Object[] args) {
+    Expression parsed = expressionCache.computeIfAbsent(expression, parser::parseExpression);
+    var context = new MethodBasedEvaluationContext(args, method, args, parameterNames);
+    return parsed.getValue(context);
+  }
 }
