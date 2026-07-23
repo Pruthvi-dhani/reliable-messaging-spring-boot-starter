@@ -10,12 +10,15 @@ A drop-in Spring Boot starter for two near-universal backend problems:
    background poller with retry, backoff, and dead-lettering. At-least-once delivery;
    combined with consumer-side `@Idempotent`, exactly-once *effect*.
 
-> **Status: under construction.** Request idempotency (`@Idempotent`) is implemented and
-> fully tested — annotation, SpEL key resolution, canonical-JSON request hashing,
-> Postgres dedupe store, cached-response replay, ProblemDetail 400/409 errors, and a
-> working `POST /orders` demo in the example app. The transactional outbox is next. See
-> [plan.md](plan.md) for the design and [implementation-plan.md](implementation-plan.md)
-> for the staged build plan (as-built record per stage).
+> **Status: under construction.** Both core features are implemented and fully tested:
+> **request idempotency** (`@Idempotent` — SpEL keys, canonical-JSON hashing, Postgres
+> dedupe store, cached-response replay, ProblemDetail 400/409) and the **transactional
+> outbox** (record-in-transaction, `FOR UPDATE SKIP LOCKED` poller, Kafka publishing keyed
+> by aggregate for per-aggregate ordering, exponential-backoff retry + dead-lettering).
+> The example app demonstrates both end to end — idempotent `POST /orders` plus outbox →
+> Kafka → `@Idempotent` consumer (exactly-once effect). Next: auto-configuration, metrics,
+> and the chaos test (Stage 3). See [plan.md](plan.md) for the design and
+> [implementation-plan.md](implementation-plan.md) for the staged, as-built build record.
 
 ## Repository layout
 

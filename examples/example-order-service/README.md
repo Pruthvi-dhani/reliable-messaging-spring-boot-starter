@@ -10,10 +10,10 @@ It demonstrates an e-commerce "place order" flow using **both** starter features
   a client retry with the same `Idempotency-Key` header replays the cached response
   instead of charging twice; same key with a different body is rejected with `409`; a
   missing key is rejected with an explanatory `400`.
-- **Outbox → Kafka → idempotent consumer** *(arrives in Stage 2)* — the order insert and
-  an `OrderPlaced` outbox event commit in one transaction; a background poller publishes
-  the event to Kafka; an `@Idempotent` Kafka consumer collapses duplicate deliveries to
-  exactly-once effect.
+- **Outbox → Kafka → idempotent consumer** *(✅ live)* — the order insert and an
+  `OrderPlaced` outbox event commit in one transaction (no dual-write window); a
+  background poller publishes the event to Kafka keyed by order id; the `@Idempotent`
+  Kafka consumer collapses duplicate deliveries to exactly-once effect.
 
 ## Try it
 

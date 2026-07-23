@@ -343,10 +343,12 @@ These get first-class treatment in the README:
 - 34 tests green (13 unit + 17 library IT + 4 example web IT); idempotent
   `POST /orders` live in `example-order-service`.
 
-**M2 — Outbox vertical slice**
-- Outbox table + migration, `OutboxPublisher.record`, poller with backoff + DLQ,
-  Kafka publisher, per-aggregate ordering.
-- Integration tests + the outbox → Kafka → consumer flow in `example-order-service`.
+**M2 — Outbox vertical slice** ✅ done
+- Outbox table (+ DB sequence for publish order), `OutboxPublisher.record` (stable event
+  id in headers), `JdbcOutboxStore` with `FOR UPDATE SKIP LOCKED`, Kafka publisher keyed
+  by aggregate id, poller with backoff + dead-letter + per-aggregate stalling.
+- 31 outbox tests green (15 unit + 13 library IT + 3 example IT); order → outbox → Kafka
+  → `@Idempotent` consumer deduping to exactly-once effect in `example-order-service`.
 
 **M3 — Auto-config & polish**
 - Auto-configuration classes, properties, Micrometer metrics, sweeper.

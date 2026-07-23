@@ -178,64 +178,87 @@ correctness, 409-on-different-body, and fail-closed on missing key.
 
 ---
 
-## Stage 2 — Outbox vertical slice (milestone M2)
+## Stage 2 — Outbox vertical slice (milestone M2) — ✅ DONE (as built)
 
 **Goal:** events written in the business transaction reach Kafka in per-aggregate order,
 with retry + dead-lettering, and provably no publish on the request path.
 
-### Implementation steps
+### What was built
 1. **`outbox/` package — contracts**
-   - `OutboxEvent` record + `OutboxStore` SPI: `record(event)`, `pollBatch(limit)`
-     (locks rows), `markPublished(id)`, `reschedule(id, nextAttemptAt, attempts)`,
-     `markDead(id)`.
-   - `EventPublisher` SPI (broker-agnostic): `publish(topic, key, payload, headers)`.
-   - `OutboxPublisher` façade the business code calls: `record(aggregateType,
-     aggregateId, eventType, payload)` — inserts via the store, no broker I/O.
-   - `Backoff` helper (exponential base + cap) and `TopicResolver` strategy.
-2. **`outbox/store/jdbc/` package — store impl**
-   - Flyway migration `V2__outbox_events.sql` (table + `(status, next_attempt_at)` index)
-     per plan.md §4.2.
-   - `JdbcOutboxStore`; `pollBatch` uses `SELECT ... FOR UPDATE SKIP LOCKED`
-     ordered by `created_at`, to support multiple poller instances.
-3. **`outbox/publisher/kafka/` package — publisher impl**
-   - `KafkaEventPublisher` implementing `EventPublisher`; Kafka key = `aggregate_id`
-     for per-aggregate ordering; maps headers.
-4. **`outbox/` package — the poller**
-   - `OutboxPoller` (scheduled loop / dedicated thread): poll batch → publish each →
-     `markPublished` on success; on failure increment attempts, `reschedule` via backoff;
-     at `attempts >= max` → `markDead`. Emit log/metric on dead-letter.
+   - `OutboxEvent` record (+ `Status PENDING|PUBLISHED|DEAD`); `OutboxStore` SPI: `record`,
+     `lockNextBatch(limit, now)`, `markPublished`, `reschedule`, `markDead`, `countPending`.
+   - `EventPublisher` SPI (broker-agnostic, synchronous ack-before-return).
+   - `OutboxPublisher` façade: `record(aggregateType, aggregateId, eventType, payload)`.
+     Mints a stable event id **at record time**, carried as the `outbox-event-id` message
+     header (+ `outbox-event-type`) so consumers dedupe on it; serializes the payload to
+     JSON and **fails fast** in the business TX if it can't. First attempt due immediately.
+   - `Backoff` (exponential ×2, capped, overflow-guarded) and `TopicResolver` (default
+     convention `<aggregateType>.events`).
+2. **`outbox/store/jdbc/` — store impl**
+   - Flyway `V2__outbox_events.sql`. **Deviation:** publish order is a DB-assigned
+     `seq bigint generated always as identity`, **not `created_at`** — timestamps collide
+     within a millisecond under load and would then order randomly, silently breaking
+     per-aggregate ordering (the end-to-end IT caught exactly this). Index is
+     `(status, next_attempt_at, seq)`.
+   - `JdbcOutboxStore`; `lockNextBatch` = `... WHERE status='PENDING' AND next_attempt_at
+     <= ? ORDER BY seq LIMIT ? FOR UPDATE SKIP LOCKED`. Pure (timestamps passed in, no
+     Clock). `jsonb` payload/headers.
+3. **`outbox/publisher/kafka/` — publisher impl**
+   - `KafkaEventPublisher` on `KafkaTemplate`; Kafka key = `aggregateId` (delegates
+     per-aggregate ordering to Kafka's per-partition total order); copies headers;
+     synchronous with a bounded ack wait; any failure (incl. timeout) throws → poller
+     retries.
+4. **`outbox/` — the poller**
+   - `OutboxPoller.pollOnce()` runs one batch in a single transaction (the SKIP LOCKED
+     locks live only that long — also what makes multiple instances safe). Per event:
+     publish → `markPublished`; failure → backoff `reschedule` or `markDead` at
+     `maxAttempts`. **Added beyond the plan — per-aggregate stalling:** when an aggregate's
+     event fails, its *later* events in the same batch are rescheduled **untried** (attempts
+     unchanged) so a retry can't overtake the failed event and reorder the aggregate.
+   - `OutboxPollerScheduler` — `SmartLifecycle` fixed-delay loop that swallows/logs any
+     throwable so it survives transient DB/broker outages.
+   - `OutboxConfiguration` — interim `@Import`-able wiring (replaced by Stage 3 auto-config).
 5. **example-order-service (outbox slice)**
-   - Extend the same `POST /orders`: within one `@Transactional`, insert the order **and**
-     `outboxPublisher.record("order", orderId, "OrderPlaced", payload)`.
-   - A `@KafkaListener` consumer that records received events (for the test assertions),
-     itself `@Idempotent(key = "#event.eventId")` to demonstrate both halves composing
-     into exactly-once effect within a single example.
+   - `OrderService.place` is now `@Transactional`: inserts the order (own `orders` table,
+     `V1000` migration) **and** `outboxPublisher.record("order", orderId, "OrderPlaced", …)`
+     in one transaction.
+   - `OrderPlacedConsumer` — `@KafkaListener` + `@Idempotent(key = "#eventId",
+     hashBody = false)` keyed on the event-id header, closing the exactly-once-effect loop.
 
-### Testing plan
-- **Unit**
-  - `Backoff` schedule math (monotonic, capped).
-  - `OutboxPoller` state machine with a mocked store + publisher: success →
-    `markPublished`; failure → `reschedule` with incremented attempts; max → `markDead`.
-  - `TopicResolver` mapping.
-- **Integration (Postgres + Kafka Testcontainers)**
-  - **Atomic write**: business insert + outbox insert commit together; if the business TX
-    rolls back, **no** outbox row exists.
-  - **No publish on request path**: immediately after the request returns, the row is
-    `PENDING` and Kafka has nothing yet; after the poller runs it's `PUBLISHED` and the
-    consumer received it.
-  - **Per-aggregate ordering**: record several events for the same `aggregate_id`; assert
-    the consumer sees them in insertion order.
-  - **Retry**: make the publisher fail K times (test double / broker paused) → row
-    retries with growing backoff, then succeeds and is `PUBLISHED`.
-  - **Dead-letter**: force permanent failure → row ends `DEAD` after `max-attempts`,
-    dead-letter metric/log emitted.
-  - **Multi-instance safety**: run two pollers against one DB → `SKIP LOCKED` prevents
-    double-publish (assert each event delivered once under normal operation).
+### Testing done (as built)
+- **Unit (15)**: `Backoff` (doubling, monotonic, capped, validation); `OutboxPublisher`
+  (event construction, header contract, distinct ids, fail-fast serialization, topic
+  convention); `OutboxPoller` state machine with mocked store/publisher (publish→mark,
+  backoff grows with attempts, dead-letter at max, **per-aggregate stall vs. unaffected
+  aggregate**, empty batch).
+- **Store IT (7, real Postgres, real transactions)**: field round-trip through `jsonb`,
+  insertion-order batches, not-yet-due excluded, published/dead terminal, reschedule
+  updates attempts+due, and **two concurrent pollers holding separate transactions lock
+  disjoint batches** (SKIP LOCKED — no double-grab, no blocking).
+- **Kafka publisher IT (3, real broker)**: payload/key/headers roundtrip; **4-partition
+  topic → same aggregate id lands in one partition in order** (vacuous on 1 partition);
+  unreachable broker → exception.
+- **Poller IT (3, Postgres + Kafka)**: record-in-TX → poll → consumed in per-aggregate
+  order with event-id headers (`countPending()==3` before the poll proves no
+  request-path publish); transient failure → backoff → retry succeeds; permanent failure
+  → `DEAD` after max attempts.
+- **Example outbox IT (3, full app context, Postgres + Kafka)**: order → Kafka →
+  consumed **exactly once**; **atomic rollback** (order + outbox both vanish on failure —
+  no dual-write window); **duplicate delivery** (same event id twice) → consumer
+  processes once.
+- Coverage gate extended: `web/`, interim `*Configuration`, and `OutboxPollerScheduler`
+  excluded (all exercised by the example module's ITs, not library-local tests).
+- Debugging notes: `@ServiceConnection` doesn't support `ConfluentKafkaContainer` on Boot
+  3.3.5 → used `@DynamicPropertySource` for Kafka; Mockito can't spy concrete classes on
+  Java 25 (ByteBuddy lag) → the rollback test uses a real `TransactionTemplate` instead of
+  `@SpyBean` (a more faithful atomicity proof anyway).
 
 ### Exit criteria
-- Business rollback leaves no outbox row; committed writes always publish.
-- Retry + dead-letter paths verified against real Kafka.
-- `example-order-service` shows order → outbox → Kafka → idempotent consumer end-to-end.
+- [x] Business rollback leaves no outbox row; committed writes always publish.
+- [x] Retry + dead-letter paths verified against real Kafka.
+- [x] Per-aggregate ordering holds (proven via multi-partition topic + DB sequence).
+- [x] `example-order-service` shows order → outbox → Kafka → idempotent consumer,
+      deduping duplicate deliveries to exactly-once effect.
 
 ---
 

@@ -159,7 +159,13 @@
                         </goals>
                         <configuration>
                             <excludes>
+                                <!-- Exercised end-to-end by the example module's ITs, not by
+                                     library-local tests: the web advice, the interim @Configuration
+                                     wiring (replaced by Stage 3 auto-config), and the poller
+                                     thread/lifecycle glue. -->
                                 <exclude>**/web/**</exclude>
+                                <exclude>**/*Configuration.class</exclude>
+                                <exclude>**/OutboxPollerScheduler.class</exclude>
                             </excludes>
                             <rules>
                                 <rule>

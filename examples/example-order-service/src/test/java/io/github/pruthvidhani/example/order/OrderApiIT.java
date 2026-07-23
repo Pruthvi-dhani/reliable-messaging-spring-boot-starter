@@ -13,15 +13,20 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 
 /**
  * End-to-end HTTP semantics of the idempotent order endpoint: status codes, ProblemDetail bodies,
- * and replay behavior — through the real controller, aspect, and a real Postgres.
+ * and replay behavior — through the real controller, aspect, and a real Postgres. A Kafka container
+ * is present because the app context now wires the outbox (poller + consumer); this test does not
+ * assert on it.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -30,6 +35,17 @@ class OrderApiIT {
 
   @Container @ServiceConnection
   static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine");
+
+  // @ServiceConnection does not recognize ConfluentKafkaContainer on Spring Boot 3.3, so wire
+  // the bootstrap servers explicitly.
+  @Container
+  static ConfluentKafkaContainer kafka =
+      new ConfluentKafkaContainer("confluentinc/cp-kafka:7.7.1");
+
+  @DynamicPropertySource
+  static void kafkaProperties(DynamicPropertyRegistry registry) {
+    registry.add("spring.kafka.bootstrap-servers", kafka::getBootstrapServers);
+  }
 
   @Autowired private MockMvc mvc;
   @Autowired private ObjectMapper objectMapper;
