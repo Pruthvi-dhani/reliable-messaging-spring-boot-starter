@@ -5,6 +5,9 @@
 --                   PENDING -> ... retries with backoff ... -> DEAD (exhausted, terminal)
 create table outbox_events (
     id              uuid        not null primary key,
+    -- Publish order. A DB-assigned sequence, NOT created_at: timestamps can collide within
+    -- a millisecond and would then order randomly, breaking per-aggregate ordering.
+    seq             bigint      generated always as identity,
     aggregate_type  text        not null,
     aggregate_id    text        not null,
     event_type      text        not null,
@@ -18,4 +21,4 @@ create table outbox_events (
 );
 
 -- For the poller: PENDING events due for an attempt, oldest first
-create index idx_outbox_events_pending on outbox_events (status, next_attempt_at);
+create index idx_outbox_events_pending on outbox_events (status, next_attempt_at, seq);

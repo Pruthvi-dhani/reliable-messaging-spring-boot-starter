@@ -32,13 +32,14 @@ public class JdbcOutboxStore implements OutboxStore {
       values (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?)
       """;
 
+  /** Ordered by the DB-assigned sequence — created_at can collide and would order randomly. */
   private static final String LOCK_BATCH_SQL =
       """
       select id, aggregate_type, aggregate_id, event_type, payload, headers, status,
              attempts, next_attempt_at, created_at, published_at
         from outbox_events
        where status = 'PENDING' and next_attempt_at <= ?
-       order by created_at, id
+       order by seq
        limit ?
          for update skip locked
       """;
