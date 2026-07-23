@@ -86,63 +86,95 @@ stage lands on green infrastructure.
 
 ---
 
-## Stage 1 — Idempotency vertical slice (milestone M1)
+## Stage 1 — Idempotency vertical slice (milestone M1) — ✅ DONE (as built)
 
 **Goal:** a working `@Idempotent` on a real endpoint, backed by Postgres, with replay
 correctness, 409-on-different-body, and fail-closed on missing key.
 
-### Implementation steps
+### What was built
 1. **`idempotency/` package — annotation & contracts**
-   - `@Idempotent(key, ttl, hashBody, include)` annotation.
-   - `IdempotencyKeyResolver` — evaluates the SpEL expression against method args
-     (`MethodBasedEvaluationContext`), stringifies the result, fails closed on
-     null/blank.
-   - `RequestHasher` — canonicalize target payload (stable JSON) → SHA-256 hex.
-   - `IdempotencyStore` SPI: `find(key)`, `putInProgress(key, hash)`,
-     `complete(key, response, status)`, `deleteExpired(now)`.
-   - Domain records: `IdempotencyRecord(key, hash, payload, status, createdAt, expiresAt)`,
-     `IdempotencyConflictException`, `IdempotencyKeyMissingException`.
-2. **`idempotency/store/jdbc/` package — store impl**
-   - Flyway migration `V1__idempotency_keys.sql` (table + `expires_at` index) per the
-     schema in plan.md §4.1.
-   - `JdbcIdempotencyStore` implementing the SPI; use `INSERT ... ON CONFLICT DO NOTHING`
-     to make the in-progress insert the concurrency gate.
-3. **`idempotency/` package — the aspect**
-   - `IdempotencyAspect` (`@Around` on `@Idempotent`) implementing the plan.md §4.1
-     flow: resolve key → hash → lookup → hit(same)/hit(diff→409)/miss(run+persist).
-   - Runs inside the caller's transaction (`@Transactional` propagation documented).
-   - Concurrent-duplicate handling: on unique-violation from the in-progress insert,
-     treat as a racing duplicate (short retry/wait then read the completed row).
-4. **`web/` package (minimal wiring for this stage)**
-   - `@ControllerAdvice` mapping `IdempotencyConflictException → 409` and
-     `IdempotencyKeyMissingException → 400`.
-   - Wire aspect + store beans (full auto-config comes in Stage 3; a manual `@Bean`
-     config is fine here).
+   - `@Idempotent(key, ttl, hashBody, hashOf)`. Deviations from the original sketch:
+     `include` was dropped; **`hashOf`** (SpEL) was added instead — it selects *what* to
+     hash, defaulting to the `@RequestBody` parameter, falling back to all arguments
+     (see plan.md §6 decision 2). `ttl` empty → configured default (24h interim).
+   - `IdempotencyKeyResolver` — SpEL vs. method args (`MethodBasedEvaluationContext`,
+     parsed-expression cache); fails closed on null/blank **and on evaluation errors**
+     (dominant runtime cause is a missing client header → 400, not 500). A separate
+     `evaluate()` method serves `hashOf`, where failures ARE developer bugs and propagate.
+   - `RequestHasher` — canonical JSON (properties alphabetized, map entries sorted, ISO
+     dates) → SHA-256 lowercase hex.
+   - `IdempotencyStore` SPI: `find`, `putInProgress` (atomic claim), `complete`,
+     **`remove`** (added beyond the plan: a failed execution must release the claim so
+     the client can retry — otherwise the key is burned), `deleteExpired`.
+   - Domain: `IdempotencyRecord` (+ `Status IN_PROGRESS|COMPLETED`), exceptions:
+     `IdempotencyConflictException` (409), `IdempotencyKeyMissingException` (400), and
+     **`IdempotencyInProgressException`** (409 + `Retry-After`, added for the
+     concurrent-duplicate wait-budget-exhausted case, mirroring Stripe).
+2. **`idempotency/store/jdbc/` — store impl**
+   - Flyway `V1__idempotency_keys.sql` (table + status CHECK + `expires_at` index).
+   - `JdbcIdempotencyStore` (JdbcTemplate + injected `Clock`). The claim is
+     `INSERT ... ON CONFLICT DO UPDATE ... WHERE expired` — one atomic statement with
+     three outcomes: fresh insert wins / live row loses / **expired row is stolen**
+     (stale response wiped, re-claimed IN_PROGRESS). The steal clause closes the gap
+     where `find()` says absent (expired) but a plain DO-NOTHING insert says taken.
+     `find()` filters `expires_at > now`, enforcing expired-equals-absent.
+3. **`idempotency/` — the aspect**
+   - `IdempotencyAspect` (`@Around`): resolve key → hash target → single **claim loop**:
+     claim won → execute + cache (JSON via Jackson; method threw → `remove()` +
+     rethrow); claim lost → conflict check first (409), replay if COMPLETED, else poll
+     within a wait budget (interim 5s/100ms). The loop re-attempts the claim each pass,
+     so a duplicate waiting on a winner that *fails* takes over the freed claim and
+     executes — the retry succeeds without a client round-trip.
+   - Deviation: the planned "runs inside the request transaction" coupling was not
+     needed — the claim row is written before execution and removed on failure, which
+     makes the dedupe protocol transaction-independent.
+   - Not yet done (carried to later): `response_status` column is not populated; replay
+     returns 200 + cached DTO. `ResponseEntity`/custom-status support deferred.
+4. **`web/` — advice + wiring**
+   - `IdempotencyExceptionAdvice` (`@RestControllerAdvice`) returns **RFC-7807
+     ProblemDetail bodies** with explanatory titles/details (per review decision, the
+     client always sees *why*): missing key → 400, conflict → 409, in-progress → 409
+     with `Retry-After: 1`.
+   - `IdempotencyConfiguration` — interim `@Import`-able wiring (clock, resolver,
+     hasher, store, aspect, advice); Stage 3 auto-config replaces it.
 5. **example-order-service (idempotency slice)**
-   - `POST /orders` with `@Idempotent(key = "#headers['Idempotency-Key']", ttl="24h")`
-     returning an `OrderResponse`; in-memory "charge" side effect with a counter to prove
-     single execution on retry. (The outbox half of this example lands in Stage 2.)
+   - `POST /orders` on `OrderController`, key = `#idempotencyKey` bound via
+     `@RequestHeader("Idempotency-Key", required = false) String`. **Pattern
+     deliberately changed from the `#headers[...]` map form**: HTTP/2 lowercases header
+     names, so a literal map lookup breaks; `@RequestHeader` binding is case-insensitive.
+     `required=false` lets the starter's explanatory 400 fire instead of Spring's generic
+     error. Document as the recommended pattern.
+   - `OrderService` with an observable charge counter; Flyway runs the starter's
+     migration on app boot (drop-in schema story proven by the tests).
 
-### Testing plan
-- **Unit**
-  - `IdempotencyKeyResolver`: header extraction, composed expressions, null → throws.
-  - `RequestHasher`: determinism (same body → same hash; reordered JSON fields → same
-    hash; changed value → different hash).
-- **Integration (Postgres Testcontainer)**
-  - First call executes the method once and caches; side-effect counter == 1.
-  - Duplicate call (same key, same body) returns the **cached response**, counter still 1.
-  - Same key + **different body** → `IdempotencyConflictException` / HTTP 409.
-  - **Missing** `Idempotency-Key` → HTTP 400 (fail closed).
-  - **TTL expiry**: advance clock past `expires_at` (inject a `Clock`), retry treated as
-    a fresh request; counter increments.
-  - **Concurrency**: fire N parallel identical requests (executor + latch) → method runs
-    exactly once, all callers get the same response.
-- **Web-layer** (`@WebMvcTest` or full `@SpringBootTest`) on the example endpoint
-  covering the 200/409/400 status mapping.
+### Testing done (as built)
+- **Unit (13)**: resolver (header extraction, composed keys, absent/blank/unevaluable →
+  fail closed) and hasher (determinism, map-order independence, value-change detection,
+  args-order sensitivity, hex format, null payload).
+- **Store IT (8, real Postgres)**: claim won/lost, in-progress read-back, complete →
+  replayable fields, remove releases, expired-absent + steal, live-not-stealable,
+  sweeper deletes only expired, 16-thread race → exactly one winner.
+- **Aspect IT (9, Spring AOP proxy + Postgres)**: single execution, cached replay (same
+  `paymentId`), different-body 409, header-change ≠ conflict (body-only hashing), missing
+  key fail-closed, TTL expiry = fresh request (via injected `MutableClock` — no
+  sleeping), failed execution releases key, void broker-style `hashBody=false` dedupe,
+  8 concurrent duplicates → one execution + identical responses for all callers.
+- **Web IT (4, example module, MockMvc + `@ServiceConnection` Testcontainers)**: 200 +
+  replay with exactly one charge, 409 ProblemDetail with explanatory detail, 400
+  ProblemDetail for missing header, independent keys → independent orders.
+- **Coverage gate now enforced**: JaCoCo `check` at 80% line on the library bundle
+  (`web/` excluded — the advice is exercised end-to-end by the example's ITs).
+- Debugging notes for the record: two test bugs found and fixed en route (an
+  `invokeAll`/latch deadlock in the store concurrency test; direct field access on a
+  CGLIB-proxied bean in the aspect IT — fields aren't forwarded to the target, which
+  incidentally validates the documented self-invocation/proxy caveat).
 
 ### Exit criteria
-- All idempotency semantics above pass against a real Postgres container.
-- `example-order-service` order-placement endpoint demonstrably dedupes retries end-to-end.
+- [x] All idempotency semantics pass against a real Postgres container (17 ITs library,
+      4 ITs example).
+- [x] `example-order-service` order-placement endpoint demonstrably dedupes retries
+      end-to-end (same confirmation replayed, charge counter unchanged).
+- [x] Coverage gate active and green (≥80% line).
 
 ---
 

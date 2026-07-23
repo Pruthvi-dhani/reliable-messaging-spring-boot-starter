@@ -336,9 +336,12 @@ These get first-class treatment in the README:
 - Two independent module POMs (no shared parent), package skeletons, per-module CI
   pipelines + Maven wrappers, Testcontainers bases + connectivity ITs, compose stack.
 
-**M1 — Idempotency vertical slice**
-- Annotation, SpEL resolver, hasher, Postgres store, AOP aspect, 409 handling.
-- Integration tests + idempotent order-placement endpoint in `example-order-service`.
+**M1 — Idempotency vertical slice** ✅ done
+- `@Idempotent(key, ttl, hashBody, hashOf)`, SpEL resolver (fail-closed), canonical-JSON
+  hasher, Postgres store with atomic claim + expired-row steal, AOP aspect with claim
+  loop, ProblemDetail 400/409 advice, 80% line coverage gate.
+- 34 tests green (13 unit + 17 library IT + 4 example web IT); idempotent
+  `POST /orders` live in `example-order-service`.
 
 **M2 — Outbox vertical slice**
 - Outbox table + migration, `OutboxPublisher.record`, poller with backoff + DLQ,
