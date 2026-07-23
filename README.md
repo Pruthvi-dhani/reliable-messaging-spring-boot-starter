@@ -10,10 +10,12 @@ A drop-in Spring Boot starter for two near-universal backend problems:
    background poller with retry, backoff, and dead-lettering. At-least-once delivery;
    combined with consumer-side `@Idempotent`, exactly-once *effect*.
 
-> **Status: under construction.** Stage 0 (project scaffolding, CI, Testcontainers
-> infrastructure) is in place; the features themselves land next. See
+> **Status: under construction.** Request idempotency (`@Idempotent`) is implemented and
+> fully tested — annotation, SpEL key resolution, canonical-JSON request hashing,
+> Postgres dedupe store, cached-response replay, ProblemDetail 400/409 errors, and a
+> working `POST /orders` demo in the example app. The transactional outbox is next. See
 > [plan.md](plan.md) for the design and [implementation-plan.md](implementation-plan.md)
-> for the staged build plan.
+> for the staged build plan (as-built record per stage).
 
 ## Repository layout
 
