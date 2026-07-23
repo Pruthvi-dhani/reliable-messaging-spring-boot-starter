@@ -1,0 +1,17 @@
+# Gitleaks configuration. Extends the bundled default ruleset (all the known
+# provider token formats + generic high-entropy rules) and adds one allowlist
+# for the example app's intentional local-dev credentials.
+[extend]
+useDefault = true
+
+# The example service points at the repo-root docker-compose Postgres with a
+# throwaway `orders/orders` credential. It's local-only dev config, not a
+# secret — allowlist it so the scan stays a signal, not noise.
+[allowlist]
+description = "Local-only dev credentials for the example app (docker-compose Postgres)"
+paths = [
+  '''examples/example-order-service/src/main/resources/application\.yml''',
+]
+regexes = [
+  '''password: orders''',
+]
