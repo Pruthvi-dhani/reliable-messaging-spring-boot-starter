@@ -354,8 +354,13 @@ These get first-class treatment in the README:
 - Auto-configuration classes, properties, Micrometer metrics, sweeper.
 - Chaos test (no loss on broker outage; exactly-once effect via event-id dedupe).
 
-**M4 — Docs & benchmark**
-- README (diagram, semantics, decision log), benchmark harness + results table.
+**M4 — Docs** ✅ done
+- README (diagram, delivery semantics, decision log, config + metrics reference,
+  quick-start). Benchmark harness descoped.
+
+**M5 — AWS deployment (Terraform)**
+- Containerize the example app and stand up its infrastructure on AWS as code:
+  ECS Fargate service + RDS Postgres + MSK Kafka + ALB, provisioned with Terraform.
 
 **Stretch (as time allows)**
 - LISTEN/NOTIFY tailer, Debezium bridge, Redis/DynamoDB dedupe SPI impl, docs site.

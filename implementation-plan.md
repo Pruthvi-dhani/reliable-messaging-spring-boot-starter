@@ -361,39 +361,154 @@ prove no event loss under failure.
 
 ---
 
-## Stage 4 — Docs & benchmarks (milestone M4)
+## Stage 4 — Docs (milestone M4) — ✅ DONE (as built)
 
-**Goal:** ship the senior-IC write-up and the numbers that back the resume bullet.
+**Goal:** ship the senior-IC write-up that frames the project.
 
-### Implementation steps
-1. **README**
-   - Architecture diagram (idempotency path + outbox path).
-   - Delivery-semantics section: at-least-once guarantee, assumptions, degradation per
-     failure mode (plan.md §6.6).
-   - Decision log covering all six items in plan.md §6.
-   - Quick-start: dependency + properties + minimal example.
-2. **Benchmark harness**
-   - A load driver (e.g. k6/JMeter or a small JMH/HTTP client) hitting the example apps
-     under `docker-compose`.
-   - Measure: request throughput, p50/p99 latency (idempotent endpoint, hit vs. miss),
-     dedupe hit rate, outbox publish latency, outbox lag under sustained load.
-   - Capture results into a README benchmark table with the test environment noted.
+**Scope change:** the originally-planned **benchmark harness was dropped** — the
+performance numbers weren't worth the harness-maintenance cost for this project's goals,
+and the delivery-semantics/failure-mode reasoning (not throughput) is the signal that
+matters here. Stage 4 is now docs-only.
 
-### Testing plan
-- Benchmark scripts are **repeatable**: a `make bench` / script that stands up compose,
-  runs the load, and prints the table — re-runnable in CI (smoke scale) and locally
-  (full scale).
-- A CI job runs the benchmark at small scale purely to guard against the harness rotting
-  (not for performance gating).
-- Doc examples are compile-checked (the quick-start snippet matches a real example app).
+### What was built
+1. **README** — rewritten from the interim "under construction" scaffold into the full
+   starter write-up, entirely from as-built source (real property keys, metric names, and
+   code lifted from the example so nothing is aspirational):
+   - **Quick start** — the four real steps: add dependency → `@Idempotent` endpoint →
+     `OutboxPublisher.record` in a `@Transactional` service → deduping `@KafkaListener`.
+   - **Architecture** — two **mermaid** diagrams (GitHub-native): an idempotency sequence
+     diagram (claim → hit/miss/conflict branches) and an outbox flowchart (write-path →
+     poller → Kafka → consumer).
+   - **Delivery semantics & failure modes** — the plan.md §6.6 table (business rollback,
+     poller crash mid-batch, broker down, DB down, duplicate delivery → what each degrades
+     to), plus the per-aggregate-ordering rationale.
+   - **Configuration** reference (every real property + default) and **Metrics** reference
+     (all six meters with exact names/tags).
+   - **Design decisions** — all six from plan.md §6, condensed to the *why*.
+
+### Testing done (as built)
+- Doc snippets are copied from the compiling example app (the quick-start mirrors
+  `OrderController` / `OrderService` / `OrderPlacedConsumer`), so they don't drift.
+- Mermaid fences balanced and every relative link resolves (checked at write time).
 
 ### Exit criteria
-- README complete with diagram, semantics, decision log, and a populated benchmark table.
-- Benchmark harness re-runnable via a single command.
+- [x] README complete with diagram, semantics, decision log, configuration + metrics
+      references, and quick-start.
+- [x] ~~Benchmark table~~ — descoped (see above).
 
 ---
 
-## Stage 5 — Stretch (post-MVP, as time allows)
+## Stage 5 — AWS deployment via Terraform (milestone M5)
+
+**Goal:** containerize `example-order-service` and provision its full runtime on AWS
+**entirely as code** — ECS Fargate + RDS Postgres + MSK Serverless + ALB — deployable and
+destroyable from a single GitHub Actions run, operated **ephemerally** to keep cost near
+zero (apply → demo → `destroy`).
+
+**What actually ships:** the library is just a dependency; the deployable unit is the
+**example app** with the starter baked into its image. The deliverable is "the starter
+proven running in real cloud infra, reproducible from code."
+
+**Decisions locked** (Stage 5 kickoff): **compute** = ECS Fargate; **Kafka** = MSK
+Serverless (IAM auth, private-only); **lifecycle** = ephemeral; **deploy** = GitHub
+Actions with OIDC (no long-lived AWS keys). Infra lives in a new top-level `deploy/`
+tree, independent of the two Maven modules. Built in parts, **stopping after each for
+review** (same cadence as Stage 3).
+
+### Target architecture
+```
+GitHub Actions ──(OIDC → IAM role)──► build image → push ECR → terraform apply
+Internet ─► ALB (public subnets) ─► ECS Fargate task (private subnets, :8080)
+                                        │  example-order-service, Flyway migrates on boot
+                          ┌─────────────┼──────────────┐
+                          ▼             ▼              ▼
+                     RDS Postgres    MSK Serverless   Secrets Manager
+                     (private)       (IAM auth)       (DB credentials)
+```
+Egress via **VPC endpoints** (ECR, S3, Secrets Manager, CloudWatch Logs, STS) — no NAT
+gateway. Terraform **remote state** in S3 + DynamoDB lock so CI `apply`/`destroy` share
+state. Modules: `network`, `security`, `data`, `app`.
+
+### Part 0 — Terraform bootstrap & layout
+- `deploy/` root + module skeletons; provider/version pinning; S3 backend + DynamoDB lock
+  (one-time bootstrap, documented). Variables: region, project, env, `image_tag`, CIDRs,
+  instance sizes, cost toggles (Multi-AZ off, desired-count 1). `terraform.tfvars.example`.
+- *Testing:* `terraform fmt -check` + `validate` green; a CI job runs them on `deploy/**`
+  changes. (Optional `tflint`/`checkov` security scan — extends the Stage-3 security theme.)
+
+### Part 1 — App readiness (containerize + cloud config)
+- Add `spring-boot-starter-actuator` to the example; expose `/actuator/health` for ALB +
+  ECS health checks.
+- **MSK IAM auth:** add `software.amazon.msk:aws-msk-iam-auth`; an `aws` Spring profile
+  sets `security.protocol=SASL_SSL`, `sasl.mechanism=AWS_MSK_IAM`, the IAM callback
+  handler, and reads bootstrap servers + datasource from env (12-factor). Default profile
+  stays plaintext local Kafka — **no local-dev regression**.
+- **Image:** `./mvnw spring-boot:build-image` (Cloud Native Buildpacks — layered, no
+  Dockerfile to maintain); hand-written multi-stage Dockerfile as the documented fallback.
+- *Testing:* image builds; container boots against local compose via the profile and
+  passes `/actuator/health`; **existing example ITs still green** (added deps/profile
+  introduce no regression).
+
+### Part 2 — Network module
+- VPC across 2 AZs, public + private subnets, IGW, route tables; the VPC endpoints above.
+  Security groups: ALB (80/443 from internet) → app (8080 from ALB SG) → RDS (5432 from
+  app SG), MSK (9098 IAM from app SG). Least-privilege SG chaining, nothing data-tier
+  public.
+- *Testing:* reviewed `plan`; connectivity asserted end-to-end in Part 4.
+
+### Part 3 — Data module (RDS + MSK)
+- **RDS PostgreSQL**: single-AZ, small gp3 instance, `publicly_accessible=false`, private
+  subnets, app SG only. Master password via `random_password` → **Secrets Manager** (never
+  in state output/plaintext).
+- **MSK Serverless**: IAM-auth cluster in private subnets, app SG; output the IAM
+  bootstrap brokers.
+- *Testing:* apply; RDS reachable only in-VPC; MSK cluster ACTIVE; secret present.
+
+### Part 4 — App module (ECR + ECS Fargate + ALB)
+- **ECR** repo (lifecycle policy expiring old images). **ECS** cluster + Fargate service +
+  task definition: image from ECR, env for DB/Kafka endpoints, DB password **injected from
+  Secrets Manager**, `awslogs` → CloudWatch. **Task role** (runtime: MSK IAM
+  connect/read/write/describe, Secrets read) vs **execution role** (ECR pull, logs, secret
+  injection) kept distinct.
+- **ALB** + IP-mode target group + listener → service; health check `/actuator/health`.
+  Output the ALB DNS name. Desired count 1 (autoscaling left off for the demo).
+- *Testing (the cloud end-to-end proof):* apply full stack → curl the ALB URL →
+  `POST /orders` returns 200; **same `Idempotency-Key` replays** the response; the outbox
+  event flows to MSK and the consumer processes it **once** (visible in CloudWatch logs).
+
+### Part 5 — CI/CD (GitHub Actions + OIDC)
+- IAM **OIDC provider** for GitHub + a scoped **deploy role** (ECR push, ECS update,
+  Terraform state access, and the resource perms for apply — as tight as practical),
+  provisioned by a bootstrapped `iam-github` config.
+- `deploy.yml` (`workflow_dispatch`, `permissions: id-token: write`): build image →
+  push to ECR → `terraform apply -var image_tag=…` → wait for ECS deployment stable →
+  echo the ALB URL → smoke-curl `/actuator/health`. `destroy.yml` for one-click teardown.
+- *Testing:* run the pipeline from GitHub — this also finally **exercises the repo's
+  Actions remotely, closing the standing "CI never run on GitHub" item**; then run
+  `destroy` and confirm all billable resources are gone.
+
+### Part 6 — Docs, cost guardrails, teardown proof
+- `deploy/README.md`: architecture diagram, prerequisites (AWS account, one-time state +
+  OIDC bootstrap), one-command apply/destroy, **cost note + ephemeral workflow**, "what to
+  check in the console." Link it from the root README.
+- Cost guardrails baked into defaults (smallest sizes, single-AZ, NAT-free, desired 1);
+  documented est. hourly cost.
+- As-built updates to this file + plan.md **M5 done**.
+- *Testing:* `terraform destroy` leaves **zero billable resources** (verify in
+  console/Cost Explorer); only the state bucket + lock table survive (documented).
+
+### Exit criteria
+- `terraform apply` from clean → a working **public ALB URL** serving the example;
+  idempotent `POST /orders`; outbox → MSK → consumer exactly-once effect, visible in
+  CloudWatch.
+- Deploy **and** destroy via GitHub Actions with **OIDC (no static AWS keys)**; teardown
+  verified to stop all charges.
+- All infra is code — no console clicks beyond the one-time state + OIDC bootstrap; `fmt`
+  / `validate` clean; modules reused across `network`/`security`/`data`/`app`.
+
+---
+
+## Stage 6 — Stretch (post-MVP, as time allows)
 
 Each stretch item is independently shippable and follows the same "code + tests" rule.
 
