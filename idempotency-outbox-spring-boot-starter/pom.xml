@@ -28,7 +28,7 @@
              ConfluentKafkaContainer. Overriding the parent-managed version property. -->
         <testcontainers.version>1.20.4</testcontainers.version>
         <spotless-maven-plugin.version>2.43.0</spotless-maven-plugin.version>
-        <jacoco-maven-plugin.version>0.8.12</jacoco-maven-plugin.version>
+        <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
     </properties>
 
     <dependencies>
