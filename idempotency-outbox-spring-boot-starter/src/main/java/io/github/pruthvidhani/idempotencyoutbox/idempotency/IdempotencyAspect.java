@@ -1,8 +1,5 @@
 package io.github.pruthvidhani.idempotencyoutbox.idempotency;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.time.Clock;
@@ -15,6 +12,8 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.web.bind.annotation.RequestBody;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Intercepts {@link Idempotent} methods and enforces the dedupe semantics:
@@ -61,7 +60,8 @@ public class IdempotencyAspect {
     this.duplicateWaitBudget = duplicateWaitBudget;
     this.duplicatePollInterval = duplicatePollInterval;
     this.metrics = metrics;
-    this.responseMapper = JsonMapper.builder().addModule(new JavaTimeModule()).build();
+    // Jackson 2 defaults keep cached responses written by earlier releases readable on replay.
+    this.responseMapper = JsonMapper.builderWithJackson2Defaults().build();
   }
 
   @Around("@annotation(idempotent)")
@@ -124,7 +124,7 @@ public class IdempotencyAspect {
     return result;
   }
 
-  private Object replay(Method method, IdempotencyRecord record) throws java.io.IOException {
+  private Object replay(Method method, IdempotencyRecord record) {
     if (record.responsePayload() == null) {
       return null; // void method: the guarantee is single execution, there is nothing to replay
     }

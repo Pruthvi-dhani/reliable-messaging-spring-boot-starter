@@ -9,7 +9,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
+        <version>4.1.0</version>
         <relativePath/>
     </parent>
 
@@ -24,22 +24,22 @@
 
     <properties>
         <java.version>21</java.version>
-        <!-- Spring Boot 3.3.5 manages Testcontainers 1.19.8; we need >= 1.20.0 for
-             ConfluentKafkaContainer. Overriding the parent-managed version property. -->
+        <!-- Pinned to Testcontainers 1.x until the tests move to the 2.x artifacts and packages
+             that Spring Boot 4 manages. -->
         <testcontainers.version>1.20.4</testcontainers.version>
         <spotless-maven-plugin.version>3.8.0</spotless-maven-plugin.version>
         <jacoco-maven-plugin.version>0.8.15</jacoco-maven-plugin.version>
     </properties>
 
     <dependencies>
-        <!-- Core Spring Boot + AOP (for the @Idempotent aspect) -->
+        <!-- Core Spring Boot + AspectJ (for the @Idempotent aspect) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-aop</artifactId>
+            <artifactId>spring-boot-starter-aspectj</artifactId>
         </dependency>
 
         <!-- JdbcTemplate for the Postgres dedupe + outbox stores -->
@@ -48,20 +48,29 @@
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
 
-        <!-- Kafka publisher for the outbox poller -->
+        <!-- Kafka publisher for the outbox poller. Boot 4 moved Kafka auto-configuration and
+             KafkaProperties out of spring-boot-autoconfigure into this starter's module. -->
         <dependency>
-            <groupId>org.springframework.kafka</groupId>
-            <artifactId>spring-kafka</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-kafka</artifactId>
         </dependency>
 
-        <!-- Schema migrations shipped with the starter -->
+        <!-- Schema migrations shipped with the starter. Boot 4 only runs Flyway on startup when
+             its spring-boot-flyway module is present, so depend on the starter, not flyway-core. -->
         <dependency>
-            <groupId>org.flywaydb</groupId>
-            <artifactId>flyway-core</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-flyway</artifactId>
         </dependency>
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- Jackson 3 for request hashing and payload/response serialization (java.time support
+             is built in, no separate JSR-310 module). -->
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
         </dependency>
 
         <!-- Metrics -->
@@ -74,7 +83,7 @@
              (the @Idempotent HTTP flow + 409/400 advice). -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
+            <artifactId>spring-boot-starter-webmvc</artifactId>
         </dependency>
 
         <!-- Generates spring-configuration-metadata.json for @ConfigurationProperties -->

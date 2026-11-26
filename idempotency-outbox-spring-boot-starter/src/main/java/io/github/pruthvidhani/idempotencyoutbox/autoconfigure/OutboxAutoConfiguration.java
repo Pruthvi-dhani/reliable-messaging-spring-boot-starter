@@ -21,10 +21,10 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-import org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration;
-import org.springframework.boot.autoconfigure.kafka.KafkaProperties;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration;
+import org.springframework.boot.kafka.autoconfigure.KafkaAutoConfiguration;
+import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
@@ -75,7 +75,7 @@ public class OutboxAutoConfiguration {
   @Bean
   @ConditionalOnMissingBean(name = "outboxKafkaTemplate")
   public KafkaTemplate<String, String> outboxKafkaTemplate(KafkaProperties properties) {
-    Map<String, Object> producerProperties = properties.buildProducerProperties(null);
+    Map<String, Object> producerProperties = properties.buildProducerProperties();
     producerProperties.put("key.serializer", StringSerializer.class);
     producerProperties.put("value.serializer", StringSerializer.class);
     return new KafkaTemplate<>(new DefaultKafkaProducerFactory<>(producerProperties));

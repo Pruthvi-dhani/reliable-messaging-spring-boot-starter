@@ -1,8 +1,5 @@
 package io.github.pruthvidhani.idempotencyoutbox.outbox.store.jdbc;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxEvent;
 import io.github.pruthvidhani.idempotencyoutbox.outbox.OutboxStore;
 import java.sql.ResultSet;
@@ -13,6 +10,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.core.JacksonException;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Postgres-backed {@link OutboxStore}.
@@ -66,7 +67,7 @@ public class JdbcOutboxStore implements OutboxStore {
   private static final TypeReference<Map<String, String>> HEADERS_TYPE = new TypeReference<>() {};
 
   private final JdbcTemplate jdbc;
-  private final ObjectMapper headerMapper = new ObjectMapper();
+  private final ObjectMapper headerMapper = new JsonMapper();
 
   public JdbcOutboxStore(JdbcTemplate jdbc) {
     this.jdbc = jdbc;
@@ -142,7 +143,7 @@ public class JdbcOutboxStore implements OutboxStore {
     }
     try {
       return headerMapper.writeValueAsString(headers);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalArgumentException("Outbox headers are not serializable to JSON", e);
     }
   }
@@ -153,7 +154,7 @@ public class JdbcOutboxStore implements OutboxStore {
     }
     try {
       return headerMapper.readValue(json, HEADERS_TYPE);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException("Corrupt outbox headers JSON", e);
     }
   }
