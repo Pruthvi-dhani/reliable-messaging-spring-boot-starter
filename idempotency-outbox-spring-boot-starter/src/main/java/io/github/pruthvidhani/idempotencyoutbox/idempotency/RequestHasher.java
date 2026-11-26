@@ -1,15 +1,15 @@
 package io.github.pruthvidhani.idempotencyoutbox.idempotency;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.MapperFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.MapperFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.SerializationFeature;
+import tools.jackson.databind.cfg.DateTimeFeature;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Computes the request hash used to detect same-key/different-body conflicts.
@@ -18,6 +18,9 @@ import java.util.HexFormat;
  * map entries sorted by key — so that logically identical requests always produce the same bytes
  * regardless of field/entry ordering. The canonical bytes are hashed with SHA-256 and returned as
  * lowercase hex.
+ *
+ * <p>The mapper starts from Jackson 2 defaults so hashes stay identical to those computed by
+ * earlier releases: a client retrying across an upgrade must not see a false 409.
  */
 public class RequestHasher {
 
@@ -25,11 +28,14 @@ public class RequestHasher {
 
   public RequestHasher() {
     this.canonicalMapper =
-        JsonMapper.builder()
+        JsonMapper.builderWithJackson2Defaults()
             .configure(MapperFeature.SORT_PROPERTIES_ALPHABETICALLY, true)
+            // Jackson 3 treats a record's canonical constructor as a creator and would emit its
+            // components first, in declaration order. Jackson 2 sorted records fully
+            // alphabetically, and stored hashes depend on that.
+            .configure(MapperFeature.SORT_CREATOR_PROPERTIES_FIRST, false)
             .configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, true)
-            .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
-            .addModule(new JavaTimeModule())
+            .configure(DateTimeFeature.WRITE_DATES_AS_TIMESTAMPS, false)
             .build();
   }
 
@@ -41,7 +47,7 @@ public class RequestHasher {
     try {
       byte[] canonicalJson = canonicalMapper.writeValueAsBytes(payload);
       return HexFormat.of().formatHex(sha256().digest(canonicalJson));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalStateException(
           "Failed to serialize request payload for idempotency hashing", e);
     }

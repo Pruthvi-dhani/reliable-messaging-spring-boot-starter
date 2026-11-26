@@ -1,12 +1,11 @@
 package io.github.pruthvidhani.idempotencyoutbox.outbox;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.time.Clock;
 import java.util.Map;
 import java.util.UUID;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * What business code calls to emit an event. Call it <b>inside the same transaction</b> as the
@@ -37,7 +36,9 @@ public class OutboxPublisher {
   public OutboxPublisher(OutboxStore store, Clock clock) {
     this.store = store;
     this.clock = clock;
-    this.payloadMapper = JsonMapper.builder().addModule(new JavaTimeModule()).build();
+    // Jackson 2 defaults keep the payload wire format stable for consumers (e.g. java.time values
+    // as numeric timestamps, properties in declaration order).
+    this.payloadMapper = JsonMapper.builderWithJackson2Defaults().build();
   }
 
   /**
@@ -54,7 +55,7 @@ public class OutboxPublisher {
     String json;
     try {
       json = payloadMapper.writeValueAsString(payload);
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new IllegalArgumentException(
           "Outbox payload for event type '" + eventType + "' is not serializable to JSON", e);
     }

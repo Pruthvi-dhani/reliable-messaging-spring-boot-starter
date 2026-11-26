@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.pruthvidhani.idempotencyoutbox.testsupport.MutableClock;
+import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -13,6 +15,8 @@ import org.junit.jupiter.api.Test;
 class OutboxPublisherTest {
 
   record OrderPlaced(String orderId, int amountPence) {}
+
+  record OrderShipped(String orderId, Instant shippedAt, LocalDate eta, Duration window) {}
 
   /** Captures recorded events; the JDBC implementation is exercised in its own IT. */
   static class CapturingStore implements OutboxStore {
@@ -68,6 +72,28 @@ class OutboxPublisherTest {
     assertThat(event.createdAt()).isEqualTo(clock.instant());
     assertThat(event.nextAttemptAt()).as("first attempt due immediately").isEqualTo(clock.instant());
     assertThat(event.publishedAt()).isNull();
+  }
+
+  /**
+   * Pins the payload wire format consumers already parse: declaration order, java.time values as
+   * numeric timestamps / arrays (Jackson 2 defaults), not Jackson 3's ISO strings.
+   */
+  @Test
+  void payloadWireFormatIsStableAcrossReleases() {
+    publisher.record(
+        "order",
+        "order-1",
+        "OrderShipped",
+        new OrderShipped(
+            "order-1",
+            Instant.parse("2026-01-02T03:04:05.123Z"),
+            LocalDate.parse("2026-01-05"),
+            Duration.ofMinutes(30)));
+
+    assertThat(store.recorded.get(0).payload())
+        .isEqualTo(
+            "{\"orderId\":\"order-1\",\"shippedAt\":1767323045.123000000,"
+                + "\"eta\":[2026,1,5],\"window\":1800.000000000}");
   }
 
   @Test

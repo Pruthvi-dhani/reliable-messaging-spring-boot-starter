@@ -66,15 +66,11 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- Jackson 2 for request hashing and payload/response serialization. Boot 4 defaults
-             to Jackson 3, but still manages the Jackson 2 BOM. -->
+        <!-- Jackson 3 for request hashing and payload/response serialization (java.time support
+             is built in, no separate JSR-310 module). -->
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
+            <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
         <!-- Metrics -->
